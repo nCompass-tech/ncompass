@@ -3,6 +3,9 @@ include README.md
 include LICENSE
 include pyproject.toml
 
+# Include type checking marker file (PEP 561)
+include ncompass/py.typed
+
 # Include documentation directory
 recursive-include docs *.md *.rst
 

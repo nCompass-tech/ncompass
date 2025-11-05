@@ -139,3 +139,5 @@ exclude = [
     "__pycache__",
 ]
 
+[tool.setuptools.package-data]
+ncompass = ["py.typed"]
