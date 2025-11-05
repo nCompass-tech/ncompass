@@ -1,3 +1,17 @@
+# Copyright 2025 nCompass Technologies
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Description: Top level utils for AST rewriting.
 """
@@ -8,7 +22,7 @@ from ncompass.trace.core.finder import RewritingFinder
 from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
 
-def enable_rewrites(config: Optional[RewriteConfig] = None):
+def enable_rewrites(config: Optional[RewriteConfig] = None) -> None:
     """Enable all AST rewrites.
     Args:
         config: Optional configuration for the AST rewrites. RewriteConfig instance.
@@ -36,7 +50,7 @@ def enable_rewrites(config: Optional[RewriteConfig] = None):
     logger.info(f"NC profiling enabled.")
 
 
-def enable_full_trace_mode():
+def enable_full_trace_mode() -> None:
     """Enable minimal profiling for full trace capture.
     
     This mode injects only a top-level profiler context to capture
@@ -55,7 +69,7 @@ def enable_full_trace_mode():
     enable_rewrites(config=config)
 
 
-def disable_rewrites():
+def disable_rewrites() -> None:
     """Disable AST rewrites by removing the finder from sys.meta_path."""
     for f in sys.meta_path[:]:
         if isinstance(f, RewritingFinder):
