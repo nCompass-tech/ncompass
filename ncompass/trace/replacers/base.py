@@ -1,3 +1,17 @@
+# Copyright 2025 nCompass Technologies
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Description: Replacer classes for AST rewriting.
 """
@@ -76,8 +90,8 @@ class _Replacer(ast.NodeTransformer):
         """
         return []
 
-    def visit_ClassDef(self, node: ast.ClassDef):
-        # *) Class replacement: swap definition with an alias
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        """Visit and potentially modify class definitions."""
         logger.debug(f"[VISIT_CLASSDEF] Scanning {node.name}")
         replacement_stmt = self._handle_class_replacement(node)
         if replacement_stmt:
@@ -91,7 +105,7 @@ class _Replacer(ast.NodeTransformer):
         
         return self.generic_visit(node)
     
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Handle function line range wrapping for both methods and top-level functions."""
         # Find all line range configs that target this function
         matching_configs = [

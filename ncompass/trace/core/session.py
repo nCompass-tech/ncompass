@@ -1,3 +1,17 @@
+# Copyright 2025 nCompass Technologies
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Description: Main ProfilingSession API for iterative profiling workflow.
 """
@@ -250,7 +264,6 @@ class ProfilingSession:
             Dictionary with configuration statistics
         """
         return self.config_manager.get_stats()
-    
 
     def get_config_file_path(self, name: Optional[str] = None) -> str:
         """Get the path to the configuration file.
@@ -269,7 +282,7 @@ class ProfilingSession:
         else:
             return f"{self.cache_dir}/profile_config.json"
 
-    def save_config(self, name: Optional[str] = None):
+    def save_config(self, name: Optional[str] = None) -> None:
         """Save current configuration to file.
         
         Uses associated naming: profile_config_<trace_name>.json if trace_name available.
@@ -281,7 +294,7 @@ class ProfilingSession:
         self.config_manager.save_to_file(filepath)
         logger.info(f"[ProfilingSession] Configuration saved to {filepath}")
     
-    def load_config(self, name: Optional[str] = None):
+    def load_config(self, name: Optional[str] = None) -> None:
         """Load configuration from file.
         
         Args:
@@ -291,7 +304,7 @@ class ProfilingSession:
         self.config_manager.load_from_file(filepath)
         logger.info(f"[ProfilingSession] Configuration loaded from {filepath}")
     
-    def reset(self):
+    def reset(self) -> None:
         """Reset session to initial state."""
         self.config_manager.reset()
         disable_rewrites()
