@@ -1,7 +1,20 @@
+# Copyright 2025 nCompass Technologies
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Description: Finders for AST rewriting.
 """
-
 
 import importlib.abc
 import importlib.util
@@ -19,7 +32,7 @@ from ncompass.trace.core.utils import merge_marker_configs, submit_queue_request
 
 class _RewritingFinderBase(importlib.abc.MetaPathFinder):
     """Base class for AST rewriting finders."""
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict] = None) -> None:
         self.config = config or {}
         # Target fullnames from config (manual) or will be populated by AI analysis
         self.target_fullnames = list(config.get('targets', {}).keys()) if config else []
@@ -39,7 +52,7 @@ class _RewritingFinderBase(importlib.abc.MetaPathFinder):
 class RewritingFinder(_RewritingFinderBase):
     """Finder for AST rewriting."""
     
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict] = None) -> None:
         super().__init__(config=config)
         
         # Run AI analysis and get AI configs
