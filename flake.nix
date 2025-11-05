@@ -1,5 +1,5 @@
 {
-  description = "nCompass Trace Tools";
+  description = "nCompass SDK";
 
   inputs = { nixpkgs.url = "github:nixos/nixpkgs"; };
 
