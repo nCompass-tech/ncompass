@@ -22,18 +22,6 @@ Install via pip:
 pip install ncompass
 ```
 
-With PyTorch support:
-
-```bash
-pip install ncompass[torch]
-```
-
-For development:
-
-```bash
-pip install ncompass[dev]
-```
-
 ## Quick Start
 
 ```python
