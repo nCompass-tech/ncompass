@@ -3,10 +3,7 @@ Tests for ncompass.trace.core.utils module.
 """
 
 import unittest
-import tempfile
-import os
-from unittest.mock import patch, MagicMock, mock_open
-import requests
+from unittest.mock import patch, MagicMock
 
 from ncompass.trace.core.utils import (
     extract_source_code,

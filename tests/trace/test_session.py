@@ -5,12 +5,10 @@ Tests for ncompass.trace.core.session module.
 import unittest
 import tempfile
 import os
-import json
 import gzip
 import shutil
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open, call
-from datetime import datetime
+from unittest.mock import patch, MagicMock
 
 from ncompass.trace.core.session import ProfilingSession
 
