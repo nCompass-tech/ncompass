@@ -90,7 +90,7 @@ class _Replacer(ast.NodeTransformer):
         """
         return []
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
         """Visit and potentially modify class definitions."""
         logger.debug(f"[VISIT_CLASSDEF] Scanning {node.name}")
         replacement_stmt = self._handle_class_replacement(node)
@@ -105,7 +105,7 @@ class _Replacer(ast.NodeTransformer):
         
         return self.generic_visit(node)
     
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         """Handle function line range wrapping for both methods and top-level functions."""
         # Find all line range configs that target this function
         matching_configs = [

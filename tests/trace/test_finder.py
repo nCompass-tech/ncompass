@@ -4,8 +4,6 @@ Tests for ncompass.trace.core.finder module.
 
 import unittest
 import sys
-import importlib.util
-from types import ModuleType
 from unittest.mock import patch, MagicMock
 
 from ncompass.trace.core.finder import _RewritingFinderBase, RewritingFinder

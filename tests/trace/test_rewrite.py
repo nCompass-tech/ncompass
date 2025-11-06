@@ -4,7 +4,7 @@ Tests for ncompass.trace.core.rewrite module.
 
 import unittest
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from ncompass.trace.core.rewrite import enable_rewrites
 from ncompass.trace.core.finder import RewritingFinder

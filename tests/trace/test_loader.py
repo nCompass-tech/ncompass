@@ -4,8 +4,6 @@ Tests for ncompass.trace.core.loader module.
 
 import unittest
 import ast
-import tempfile
-import os
 from unittest.mock import patch, mock_open, MagicMock
 
 from ncompass.trace.core.loader import _RewritingLoader, RewritingLoader

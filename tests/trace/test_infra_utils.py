@@ -3,7 +3,6 @@ Tests for ncompass.trace.infra.utils module.
 """
 
 import unittest
-from unittest.mock import patch
 
 from ncompass.trace.infra.utils import tag, deep_merge
 

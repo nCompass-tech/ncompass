@@ -4,7 +4,7 @@ Tests for ncompass.trace.replacers.utils module.
 
 import unittest
 import ast
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from ncompass.trace.replacers.utils import (
     _CallWrapperTransformer,
