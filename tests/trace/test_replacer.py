@@ -7,29 +7,29 @@ import ast
 from unittest.mock import patch, MagicMock
 
 
-from ncompass.trace.replacers.base import _Replacer
+from ncompass.trace.replacers.base import ReplacerBase
 
 class TestReplacerBase(unittest.TestCase):
-    """Test cases for the _Replacer base class."""
+    """Test cases for the ReplacerBase base class."""
     
     def test_abstract_properties_not_implemented(self):
         """Test that abstract properties raise NotImplementedError."""
-        replacer = _Replacer()
+        replacer = ReplacerBase()
         
         with self.assertRaises(NotImplementedError):
             _ = replacer.fullname
     
     def test_visit_class_def_not_implemented(self):
         """Test that visit_ClassDef raises NotImplementedError."""
-        replacer = _Replacer()
+        replacer = ReplacerBase()
         mock_node = MagicMock()
         
         with self.assertRaises(NotImplementedError):
             replacer.visit_ClassDef(mock_node)
     
     def test_inheritance(self):
-        """Test that _Replacer inherits from ast.NodeTransformer."""
-        replacer = _Replacer()
+        """Test that ReplacerBase inherits from ast.NodeTransformer."""
+        replacer = ReplacerBase()
         self.assertIsInstance(replacer, ast.NodeTransformer)
 
 
@@ -39,7 +39,7 @@ class TestClassReplacements(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has both class and function replacements
-        class TestReplacer(_Replacer):
+        class TestReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.module"
@@ -97,7 +97,7 @@ class TestClassReplacements(unittest.TestCase):
         """Test that when a class is replaced, function replacements are applied to the replacement class name."""
         # Create a custom replacer that replaces ClassA with ClassB, 
         # and ClassB has function replacements
-        class OrderTestReplacer(_Replacer):
+        class OrderTestReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.order"
@@ -147,7 +147,7 @@ class TestClassReplacements(unittest.TestCase):
     def test_function_replacement_without_class_replacement(self):
         """Test that function replacements work when class is not being replaced."""
         # Create a replacer that only has function replacements for a class
-        class FuncOnlyReplacer(_Replacer):
+        class FuncOnlyReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.func"
@@ -217,7 +217,7 @@ class TestClassFuncReplacements(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has method replacements
-        class MethodReplacementTestReplacer(_Replacer):
+        class MethodReplacementTestReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.method.replacement"
@@ -627,7 +627,7 @@ class TestLineRangeWrapping(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has line range wrappings
-        class LineRangeTestReplacer(_Replacer):
+        class LineRangeTestReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.line.range"
@@ -743,7 +743,7 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_multiple_line_ranges_in_same_method(self):
         """Test that multiple non-overlapping line ranges can be wrapped."""
-        class MultiRangeReplacer(_Replacer):
+        class MultiRangeReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.multi.range"
@@ -852,7 +852,7 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_line_range_with_variable_context_args(self):
         """Test line range wrapping with variable references in context args."""
-        class VarArgsReplacer(_Replacer):
+        class VarArgsReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.var.args"
@@ -950,7 +950,7 @@ class TestLineRangeWrapping(unittest.TestCase):
     def test_no_statements_in_range_warning(self):
         """Test that wrapping with no statements in range produces warning."""
         # This test verifies the warning path when no statements fall in the range
-        class EmptyRangeReplacer(_Replacer):
+        class EmptyRangeReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.empty.range"
@@ -1110,7 +1110,7 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_line_range_import_deduplication(self):
         """Test that multiple ranges using same context class only import once."""
-        class DedupReplacer(_Replacer):
+        class DedupReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.dedup"
@@ -1196,7 +1196,7 @@ class TestLineRangeWrapping(unittest.TestCase):
         - An outer wrapper covers the entire method (e.g., lines 429-461)
         - Multiple inner wrappers cover specific operations within (e.g., 431-434, 436-437, 446-447)
         """
-        class NestedReplacer(_Replacer):
+        class NestedReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.nested"
@@ -1356,7 +1356,7 @@ class TestLineRangeWrapping(unittest.TestCase):
         - A small wrapper following it (lines 16-19)
         - Another wrapper after that (lines 20-25)
         """
-        class SequentialReplacer(_Replacer):
+        class SequentialReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.sequential"
@@ -1464,7 +1464,7 @@ class TestLineRangeWrapping(unittest.TestCase):
         - Lines 17-20: inner operation 2
         - Lines 55-60: separate sequential wrapper after the main method logic
         """
-        class ComplexReplacer(_Replacer):
+        class ComplexReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.complex"
@@ -1638,7 +1638,7 @@ class TestLineRangeWrapping(unittest.TestCase):
         This is critical for the execute_model case where there's an early return
         at line 439 that should not cause UnboundLocalError.
         """
-        class EarlyReturnReplacer(_Replacer):
+        class EarlyReturnReplacer(ReplacerBase):
             @property
             def fullname(self) -> str:
                 return "test.early_return"

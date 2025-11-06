@@ -18,10 +18,11 @@ Description: Finders for AST rewriting.
 
 import importlib.abc
 import importlib.util
+import importlib.machinery
 import traceback
 import os
 from types import ModuleType
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Sequence
 import sys
 from copy import deepcopy
 
@@ -44,7 +45,7 @@ class _RewritingFinderBase(importlib.abc.MetaPathFinder):
     def find_spec(
         self,
         fullname: str,
-        path: str,
+        path: Optional[Sequence[str]],
         target: Optional[ModuleType] = None
     ) -> Optional[importlib.machinery.ModuleSpec]:
         raise NotImplementedError
@@ -106,7 +107,7 @@ class RewritingFinder(_RewritingFinderBase):
                 except (ImportError, ModuleNotFoundError, ValueError) as e:
                     logger.debug(f"[AI Profiler] Could not find spec for {fullname}: {e}")
 
-            ai_configs = submit_queue_request(
+            result = submit_queue_request(
                 request={
                     'contents_by_module': file_paths
                 },
@@ -114,6 +115,9 @@ class RewritingFinder(_RewritingFinderBase):
                 endpoint='analyze_codebase',
                 await_result=True
             )
+            # When await_result=True, submit_queue_request returns a dict, not a string
+            assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
+            ai_configs = result
             logger.debug(f"[AI Profiler] Generated AI configs for {len(ai_configs)} files")
             return ai_configs
                 
@@ -125,7 +129,7 @@ class RewritingFinder(_RewritingFinderBase):
     def find_spec(
         self,
         fullname: str,
-        path: str,
+        path: Optional[Sequence[str]],
         target: Optional[ModuleType] = None
     ) -> Optional[importlib.machinery.ModuleSpec]:
         if fullname not in self.target_fullnames:

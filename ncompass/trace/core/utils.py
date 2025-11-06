@@ -155,13 +155,14 @@ def submit_queue_request(
     Returns:
         Result of the request
     """
-    response = requests.post(f"{base_url}/{endpoint}", json=request)
-    data = response.json()
+    resp = requests.post(f"{base_url}/{endpoint}", json=request)
+    data = resp.json()
     request_id = data.get('request_id')
     if not request_id:
         raise ValueError(f"Failed to submit request to {base_url}/{endpoint}")
     if await_result:
         status = str(data.get('status'))
+        response = data.get('result') or {}
         while status.lower() not in ['completed', 'failed']:
             response = get_request_status(request_id, base_url)
             status = str(response.get('status'))
@@ -169,7 +170,7 @@ def submit_queue_request(
         if status.lower() == 'completed':
             return response['result']
         else:
-            error = response.get('error')
+            error = response.get('error') or f"Request failed: {status}"
             raise ValueError(f"Request failed: {error}")
     else:
         return request_id

@@ -20,7 +20,7 @@ from typing import Optional, Any
 from ncompasslib.trait import Trait
 
 
-class _ProfileContextBase(Trait):
+class ProfileContextBase(Trait):
     """Context manager for profiling."""
     def __init__(self) -> None:
         """Initialize profiling context."""

@@ -68,9 +68,9 @@ class ConfigManager(Trait):
         if mode == ListSetMode.REPLACE:
             self.configs = configs
         elif mode == ListSetMode.APPEND:
-            self.configs.append(configs)
+            self.configs.extend(configs)
         elif mode == ListSetMode.PREPEND:
-            self.configs.insert(0, configs)
+            self.configs = configs + self.configs
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -88,11 +88,14 @@ class ConfigManager(Trait):
             mode: The mode to set the value
         """
         if mode == DictSetMode.REPLACE:
+            assert isinstance(value, dict), "Value must be a dict for REPLACE mode"
             self.current_config = value
         elif mode == DictSetMode.SET:
+            assert isinstance(value, tuple) and len(value) == 2, "Value must be a tuple of (key, value) for SET mode"
             k, v = value
             self.current_config[k] = v
         elif mode == DictSetMode.DELETE:
+            assert isinstance(value, str), "Value must be a string key for DELETE mode"
             self.current_config.pop(value, None)
         else:
             raise ValueError(f"Invalid mode: {mode}")
@@ -307,7 +310,7 @@ class ConfigManager(Trait):
         summary: Dict[str, Any], 
         trace_path: str,
         trace_name: Optional[str] = None,
-        output_dir: Optional[str] = ".cache/ncompass/sessions",
+        output_dir: str = ".cache/ncompass/sessions",
     ) -> tuple[str, str]:
         """Save trace summary to both JSON and markdown files.
         
