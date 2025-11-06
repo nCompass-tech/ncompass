@@ -7,7 +7,7 @@ import ast
 from unittest.mock import patch
 
 from ncompass.trace.replacers.utils import (
-    _CallWrapperTransformer,
+    CallWrapperTransformer,
     make_wrapper,
     create_replacer_from_config,
     create_with_statement,
@@ -16,18 +16,18 @@ from ncompass.trace.replacers.utils import (
 
 
 class TestCallWrapperTransformer(unittest.TestCase):
-    """Test cases for _CallWrapperTransformer class."""
+    """Test cases for CallWrapperTransformer class."""
     
     def test_init(self):
-        """Test _CallWrapperTransformer initialization."""
+        """Test CallWrapperTransformer initialization."""
         wrap_calls = [{'call_pattern': 'foo'}]
-        transformer = _CallWrapperTransformer(wrap_calls)
+        transformer = CallWrapperTransformer(wrap_calls)
         
         self.assertEqual(transformer.wrap_calls, wrap_calls)
     
     def test_visit_assign_no_call(self):
         """Test visit_Assign with non-call assignment."""
-        transformer = _CallWrapperTransformer([])
+        transformer = CallWrapperTransformer([])
         
         # Create assignment: x = 5
         assign_node = ast.Assign(
@@ -43,7 +43,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
     def test_visit_assign_call_no_match(self):
         """Test visit_Assign with call that doesn't match pattern."""
         wrap_calls = [{'call_pattern': 'target_func'}]
-        transformer = _CallWrapperTransformer(wrap_calls)
+        transformer = CallWrapperTransformer(wrap_calls)
         
         # Create assignment: x = other_func()
         assign_node = ast.Assign(
@@ -67,7 +67,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
             'context_class': 'test.Context',
             'context_values': []
         }]
-        transformer = _CallWrapperTransformer(wrap_calls)
+        transformer = CallWrapperTransformer(wrap_calls)
         
         # Create assignment: x = target_func()
         assign_node = ast.Assign(
@@ -94,7 +94,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
             'context_class': 'test.Context',
             'context_values': []
         }]
-        transformer = _CallWrapperTransformer(wrap_calls)
+        transformer = CallWrapperTransformer(wrap_calls)
         
         # Create assignment: x = obj.method()
         assign_node = ast.Assign(
@@ -117,7 +117,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
     
     def test_matches_call_pattern_name(self):
         """Test _matches_call_pattern with Name node."""
-        transformer = _CallWrapperTransformer([])
+        transformer = CallWrapperTransformer([])
         
         call = ast.Call(
             func=ast.Name(id="func_name", ctx=ast.Load()),
@@ -130,7 +130,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
     
     def test_matches_call_pattern_attribute(self):
         """Test _matches_call_pattern with Attribute node."""
-        transformer = _CallWrapperTransformer([])
+        transformer = CallWrapperTransformer([])
         
         call = ast.Call(
             func=ast.Attribute(
@@ -147,7 +147,7 @@ class TestCallWrapperTransformer(unittest.TestCase):
     
     def test_matches_call_pattern_other_type(self):
         """Test _matches_call_pattern with other node types."""
-        transformer = _CallWrapperTransformer([])
+        transformer = CallWrapperTransformer([])
         
         # Create a call with a subscript (not Name or Attribute)
         call = ast.Call(

@@ -20,7 +20,7 @@ import ast
 from typing import List, Optional
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.replacers.utils import (
-    make_wrapper, _CallWrapperTransformer, create_with_statement, build_context_args
+    make_wrapper, CallWrapperTransformer, create_with_statement, build_context_args
 )
 class _Replacer(ast.NodeTransformer):
     """Base class for AST replacers."""
@@ -194,7 +194,7 @@ class _Replacer(ast.NodeTransformer):
         context_imports = [self._create_context_import(wc["context_class"]) for wc in wrap_calls]
         
         # Transform the function body
-        transformer = _CallWrapperTransformer(wrap_calls)
+        transformer = CallWrapperTransformer(wrap_calls)
         new_body = context_imports
         for stmt in func_node.body:
             transformed_stmt = transformer.visit(stmt)
