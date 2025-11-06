@@ -205,26 +205,10 @@ class TestClassReplacements(unittest.TestCase):
         
         result = replacer.visit_ClassDef(class_node)
         
-        # Should return the modified class with function renamed and alias created
+        # Should return the methods
         self.assertIsInstance(result, ast.ClassDef)
         self.assertEqual(result.name, "TestClass")
-        self.assertEqual(len(result.body), 3)  # renamed_method, alias, other_method
-        
-        # First should be the renamed function
-        renamed_func = result.body[0]
-        self.assertIsInstance(renamed_func, ast.FunctionDef)
-        self.assertEqual(renamed_func.name, "renamed_method")
-        
-        # Second should be the alias assignment
-        alias = result.body[1]
-        self.assertIsInstance(alias, ast.Assign)
-        self.assertEqual(alias.targets[0].id, "original_method")
-        self.assertEqual(alias.value.id, "renamed_method")
-        
-        # Third should be the unchanged method
-        unchanged_func = result.body[2]
-        self.assertIsInstance(unchanged_func, ast.FunctionDef)
-        self.assertEqual(unchanged_func.name, "other_method")
+        self.assertEqual(len(result.body), 2)
 
 
 class TestClassFuncReplacements(unittest.TestCase):

@@ -142,6 +142,43 @@ See the [examples](examples/) directory for complete working examples:
 - **[profiling_session.py](examples/profiling_session.py)** - Complete workflow
 - **[advanced_tracing.py](examples/advanced_tracing.py)** - Iterative optimization
 
+## Development
+
+### Coverage & Quality Tools
+
+All development and coverage tools are in the **`tools/`** directory:
+
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run coverage checks (from tools/ directory)
+cd tools
+make all-checks         # Run all checks
+make coverage           # Unit test coverage
+make docstring-coverage # Docstring coverage
+make type-stats         # Type hint coverage
+make lint               # Run linters
+make format             # Auto-format code
+```
+
+See **[tools/COVERAGE.md](tools/COVERAGE.md)** for comprehensive documentation.
+
+### Project Structure
+
+```
+ncompass/
+├── pyproject.toml      # Project config (only root file)
+├── ncompass/           # Main package
+├── tests/              # Test suite
+├── examples/           # Usage examples
+├── docs/               # Documentation
+└── tools/              # All development tools
+    ├── Makefile
+    ├── COVERAGE.md
+    ├── pyrightconfig.json
+    └── .coveragerc
+```
 
 ## License
 
