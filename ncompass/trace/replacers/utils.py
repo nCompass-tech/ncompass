@@ -22,7 +22,7 @@ from ncompass.trace.infra.utils import logger
 if TYPE_CHECKING:
     from ncompass.trace.replacers.dynamic import DynamicReplacer
 
-class _CallWrapperTransformer(ast.NodeTransformer):
+class CallWrapperTransformer(ast.NodeTransformer):
     """Transformer to wrap specific function calls with context managers."""
     
     def __init__(self, wrap_calls: List[dict]) -> None:

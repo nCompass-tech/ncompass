@@ -15,7 +15,7 @@
 """Description: Utils for the core module."""
 
 import importlib.util
-from typing import Optional, Union
+from typing import Optional, Union, Any
 from copy import deepcopy
 from ncompass.trace.infra.utils import logger
 import requests
@@ -49,7 +49,7 @@ def extract_code_region(target_module: str, start_line: int, end_line: int) -> O
         code_region = '\n'.join(lines[max(0, start_line-1):min(len(lines), end_line)])
         return code_region
 
-def markers_overlap(marker1: dict[str, object], marker2: dict[str, object]) -> bool:
+def markers_overlap(marker1: dict[str, Any], marker2: dict[str, Any]) -> bool:
     """Check if two markers overlap.
     
     Args:
@@ -59,8 +59,10 @@ def markers_overlap(marker1: dict[str, object], marker2: dict[str, object]) -> b
     Returns:
         True if markers overlap, False otherwise
     """
-    start1, end1 = marker1['start_line'], marker1['end_line']
-    start2, end2 = marker2['start_line'], marker2['end_line']
+    start1: int = marker1['start_line']
+    end1: int = marker1['end_line']
+    start2: int = marker2['start_line']
+    end2: int = marker2['end_line']
     
     # Check if marker2 starts within marker1 but extends beyond it
     if start2 >= start1 and start2 <= end1 and end2 > end1:
@@ -74,9 +76,9 @@ def markers_overlap(marker1: dict[str, object], marker2: dict[str, object]) -> b
 
 
 def merge_marker_configs(
-    ai_configs: dict[str, object],
-    manual_configs: dict[str, object]
-) -> dict[str, object]:
+    ai_configs: dict[str, Any],
+    manual_configs: dict[str, Any]
+) -> dict[str, Any]:
     """Merge AI and manual configs, with manual taking priority on conflicts.
     
     For each file, if there are conflicting markers (overlapping but not subset),
@@ -131,18 +133,18 @@ def merge_marker_configs(
 def get_request_status(
     request_id: str,
     base_url: str
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Get the status of a request."""
     response = requests.get(f"{base_url}/status/{request_id}")
     data = response.json()
     return data
 
 def submit_queue_request(
-    request: dict[str, object],
+    request: dict[str, Any],
     base_url: str,
     endpoint: str,
     await_result: Optional[bool] = False
-) -> Union[dict[str, object], str]:
+) -> Union[dict[str, Any], str]:
     """Submit a request to a queue.
     Args:
         request: Request to submit
