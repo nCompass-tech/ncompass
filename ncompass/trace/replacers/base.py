@@ -17,12 +17,12 @@ Description: Replacer classes for AST rewriting.
 """
 
 import ast
-from typing import List, Optional
+from typing import List, Optional, cast
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.replacers.utils import (
     make_wrapper, CallWrapperTransformer, create_with_statement, build_context_args
 )
-class _Replacer(ast.NodeTransformer):
+class ReplacerBase(ast.NodeTransformer):
     """Base class for AST replacers."""
     
     @property
@@ -44,7 +44,7 @@ class _Replacer(ast.NodeTransformer):
         raise NotImplementedError
     
     @property
-    def class_func_replacements(self) -> dict[str, str]:
+    def class_func_replacements(self) -> dict[str, dict[str, str]]:
         """Map of class: {old method: module.replacement_class_name}."""
         raise NotImplementedError
 
@@ -152,7 +152,7 @@ class _Replacer(ast.NodeTransformer):
         if not repl_map:
             return
         
-        new_body = []
+        new_body: List[ast.stmt] = []
         for stmt in node.body:
             if isinstance(stmt, ast.FunctionDef) and stmt.name in repl_map:
                 decorators = {d.id for d in stmt.decorator_list if isinstance(d, ast.Name)}
@@ -162,7 +162,8 @@ class _Replacer(ast.NodeTransformer):
                     kind = "cls"
                 else:
                     kind = "inst"
-                new_body.append(make_wrapper(stmt.name, repl_map[stmt.name], kind))
+                method_name: str = stmt.name
+                new_body.append(make_wrapper(method_name, repl_map[method_name], kind))
             else:
                 new_body.append(stmt)
         node.body = new_body
@@ -191,14 +192,14 @@ class _Replacer(ast.NodeTransformer):
         wrap_calls = config['wrap_calls']
         
         # Add imports for the context classes at the beginning of the function
-        context_imports = [self._create_context_import(wc["context_class"]) for wc in wrap_calls]
+        context_imports: List[ast.stmt] = [self._create_context_import(wc["context_class"]) for wc in wrap_calls]
         
         # Transform the function body
         transformer = CallWrapperTransformer(wrap_calls)
-        new_body = context_imports
+        new_body: List[ast.stmt] = context_imports.copy()
         for stmt in func_node.body:
             transformed_stmt = transformer.visit(stmt)
-            new_body.append(transformed_stmt)
+            new_body.append(cast(ast.stmt, transformed_stmt))
         
         func_node.body = new_body
         return func_node
@@ -219,7 +220,7 @@ class _Replacer(ast.NodeTransformer):
         Processes from innermost to outermost range for proper nesting support.
         """
         sorted_configs = sorted(wrap_configs, key=lambda x: (x['end_line'] - x['start_line'], x['start_line']))
-        context_imports = [self._create_context_import(wc["context_class"]) for wc in wrap_configs]
+        context_imports: List[ast.stmt] = [self._create_context_import(wc["context_class"]) for wc in wrap_configs]
         
         stmt_metadata = self._build_statement_metadata(func_node.body)
         

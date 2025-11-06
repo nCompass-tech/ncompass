@@ -18,9 +18,9 @@ Description: Torch profiler context managers for AST rewriting.
 
 from typing import Optional, Any
 import torch
-from ncompass.trace.profile.base import _ProfileContextBase
+from ncompass.trace.profile.base import ProfileContextBase
 
-class TorchRecordContext(_ProfileContextBase):
+class TorchRecordContext(ProfileContextBase):
     """Context manager for Torch profiler record_function."""
     def __init__(self, name: str) -> None:
         """Initialize Torch profiler context with a name."""
