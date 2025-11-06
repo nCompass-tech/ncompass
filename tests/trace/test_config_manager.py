@@ -6,6 +6,7 @@ import unittest
 import json
 import tempfile
 import os
+from unittest.mock import patch
 
 from ncompass.trace.core.config_manager import ConfigManager, ListSetMode, DictSetMode
 
