@@ -46,7 +46,7 @@ class TestConfigManager(unittest.TestCase):
         new_config = {'iteration': 2, 'config': {'test': 'data2'}}
         
         self.config_manager._mutate_configs([initial_config], ListSetMode.REPLACE)
-        self.config_manager._mutate_configs(new_config, ListSetMode.APPEND)
+        self.config_manager._mutate_configs([new_config], ListSetMode.APPEND)
         
         self.assertEqual(len(self.config_manager.configs), 2)
         self.assertEqual(self.config_manager.configs[0], initial_config)
@@ -58,7 +58,7 @@ class TestConfigManager(unittest.TestCase):
         new_config = {'iteration': 0, 'config': {'test': 'data0'}}
         
         self.config_manager._mutate_configs([initial_config], ListSetMode.REPLACE)
-        self.config_manager._mutate_configs(new_config, ListSetMode.PREPEND)
+        self.config_manager._mutate_configs([new_config], ListSetMode.PREPEND)
         
         self.assertEqual(len(self.config_manager.configs), 2)
         self.assertEqual(self.config_manager.configs[0], new_config)
