@@ -18,3 +18,13 @@ typing_extensions==4.14.1
 ncompasslib==0.0.1.post7
 
 torch>=2.0.0
+
+# Development/Testing dependencies (pinned versions)
+pytest==8.3.4
+pytest-cov==6.0.0
+interrogate==1.7.0
+pyright==1.1.390
+mypy==1.14.1
+black==24.10.0
+isort==5.13.2
+ruff==0.8.4

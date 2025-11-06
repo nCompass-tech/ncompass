@@ -51,9 +51,11 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "interrogate>=1.5.0",
+    "pyright>=1.1.0",
+    "mypy>=1.0.0",
     "black>=23.0.0",
     "isort>=5.12.0",
-    "mypy>=1.0.0",
     "ruff>=0.1.0",
 ]
 docs = [
@@ -77,6 +79,9 @@ where = ["."]
 include = ["ncompass*"]
 exclude = ["tests*", "docs*", "examples*"]
 
+[tool.setuptools.package-data]
+ncompass = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -88,6 +93,7 @@ addopts = [
     "--cov=ncompass",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "--cov-fail-under=80",
 ]
 
 [tool.black]
@@ -123,6 +129,17 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
+show_error_codes = true
+pretty = true
+exclude = ["tests/", "examples/", "docs/", "build/", "dist/"]
+
+[[tool.mypy.overrides]]
+module = "ncompasslib.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torch.*"
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
@@ -137,5 +154,21 @@ exclude = [
     "__pycache__",
 ]
 
-[tool.setuptools.package-data]
-ncompass = ["py.typed"]
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = false
+ignore-semiprivate = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = true
+ignore-setters = false
+fail-under = 80
+exclude = ["tests", "docs", "examples", "build", "dist"]
+verbose = 2
+quiet = false
+whitelist-regex = []
+color = true
+omit-covered-files = false

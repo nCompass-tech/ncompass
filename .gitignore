@@ -49,6 +49,7 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+.mypy_report/
 cover/
 
 # Translations
@@ -209,3 +210,4 @@ __marimo__/
 # Miscellaneous
 venv-lsp/
 **/venv-lsp/
+nc_reqs.txt
