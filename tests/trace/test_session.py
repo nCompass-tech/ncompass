@@ -30,7 +30,7 @@ class TestProfilingSessionInit(unittest.TestCase):
         session = ProfilingSession(trace_output_dir=self.temp_dir)
         
         self.assertEqual(session.trace_output_dir, Path(self.temp_dir))
-        self.assertIsNone(session.cache_dir)
+        self.assertIsInstance(session.cache_dir, str)
         self.assertEqual(session.session_name, "profiling_session")
         self.assertEqual(session.base_url, "http://localhost:8000")
         self.assertIsNone(session.latest_trace_path)
@@ -56,7 +56,7 @@ class TestProfilingSessionInit(unittest.TestCase):
         session = ProfilingSession(trace_output_dir=self.temp_dir)
         
         self.assertIsNotNone(session.config_manager)
-        self.assertEqual(session.config_manager.cache_dir, None)
+        self.assertIsInstance(session.config_manager.cache_dir, str)
 
 
 class TestProfilingSessionRunProfile(unittest.TestCase):

@@ -481,10 +481,10 @@ class ProfilingSession:
             endpoint='filter',
             await_result=True
         )
-        # When await_result=True, submit_queue_request returns a dict, not a string
-        assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
-        self.latest_trace_path = result.get('filtered_trace_path')
-        assert self.latest_trace_path is not None, "filtered_trace_path should be in result"
+        if isinstance(result, str):
+            self.latest_trace_path = result
+        else:
+            raise ValueError(f"Expected string from submit_queue_request, got: {type(result)}")
         return self.latest_trace_path
 
 

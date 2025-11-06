@@ -162,7 +162,7 @@ def submit_queue_request(
         raise ValueError(f"Failed to submit request to {base_url}/{endpoint}")
     if await_result:
         status = str(data.get('status'))
-        response = data.get('result') or {}
+        response = data
         while status.lower() not in ['completed', 'failed']:
             response = get_request_status(request_id, base_url)
             status = str(response.get('status'))
