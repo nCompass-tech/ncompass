@@ -32,7 +32,7 @@ type-check: ## Run type checking with mypy
 	cd $(PROJECT_ROOT) && mypy ncompass --config-file pyproject.toml
 
 type-stats: ## Show type coverage statistics with pyright
-	cd $(PROJECT_ROOT) && pyright --stats --project tools/pyrightconfig.json
+	cd $(PROJECT_ROOT) && pyright --stats --project pyrightconfig.json
 
 type-report: ## Generate detailed type checking report with mypy
 	cd $(PROJECT_ROOT) && mkdir -p .mypy_report

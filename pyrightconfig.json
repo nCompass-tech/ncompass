@@ -1,7 +1,14 @@
 {
   "include": [
-    "../ncompass"
+    "ncompass"
   ],
+  "executionEnvironments": [
+    {
+      "root": "."
+    }
+  ],
+  "venvPath": ".",
+  "venv": "venv-lsp",
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
@@ -28,7 +35,7 @@
   "reportOptionalOperand": "warning",
   "reportUntypedFunctionDecorator": "warning",
   "reportUntypedClassDecorator": "warning",
-  "pythonVersion": "3.8",
+  "pythonVersion": "3.9",
   "pythonPlatform": "Linux"
 }
 
