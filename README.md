@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-High-performance AI inference SDK with built-in tracing and profiling capabilities. Built by [nCompass Technologies](https://ncompass.tech).
+Profiling and trace analysis SDK. Built by [nCompass Technologies](https://ncompass.tech).
 
 ## Features
 
@@ -110,27 +110,13 @@ filtered_trace = session.filter_trace(
 
 ## Why nCompass?
 
-### Built for Performance
-
-- Custom GPU kernels optimized for AI workloads
-- One of the fastest open-source inference solutions
-- Scalable architecture for production deployments
-
-### Production-Ready Monitoring
-
-- Detailed performance metrics out of the box
-- Health monitoring and alerting
-- Separate dev/prod configurations for dedicated instances
-
-### AI-Powered Insights
-
-- Automatic bottleneck identification
+- AI assisted bottleneck identification
 - Intelligent profiling marker suggestions
 - Progressive optimization guidance
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.9 or higher
 - PyTorch 2.0+ (optional, for torch profiling features)
 - CUDA-capable GPU (optional, for GPU profiling)
 
@@ -192,7 +178,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## About nCompass Technologies
 
-nCompass Technologies builds high-performance AI inference solutions with custom GPU kernels. Our mission is to make AI inference faster, more scalable, and more accessible.
+We are building tools that allow GPU kernel developers save hours of dev time every week. Write code that runs twice as fast, twice as quickly.
 
 Learn more at [ncompass.tech](https://ncompass.tech).
 
