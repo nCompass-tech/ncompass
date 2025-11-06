@@ -1,0 +1,28 @@
+[run]
+source = ../ncompass
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */venv-lsp/*
+    */dist/*
+    */build/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+    
+precision = 2
+show_missing = true
+
+[html]
+directory = htmlcov
+

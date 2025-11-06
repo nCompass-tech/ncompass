@@ -1,0 +1,34 @@
+{
+  "include": [
+    "../ncompass"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "tests",
+    "examples",
+    "docs",
+    "build",
+    "dist"
+  ],
+  "typeCheckingMode": "standard",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "reportUnusedImport": "warning",
+  "reportUnusedClass": "warning",
+  "reportUnusedFunction": "warning",
+  "reportUnusedVariable": "warning",
+  "reportDuplicateImport": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalCall": "warning",
+  "reportOptionalIterable": "warning",
+  "reportOptionalContextManager": "warning",
+  "reportOptionalOperand": "warning",
+  "reportUntypedFunctionDecorator": "warning",
+  "reportUntypedClassDecorator": "warning",
+  "pythonVersion": "3.8",
+  "pythonPlatform": "Linux"
+}
+
