@@ -17,7 +17,7 @@ Description: Replacer classes for AST rewriting.
 """
 
 import ast
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import List, Optional, Union, TYPE_CHECKING, cast
 from ncompass.trace.infra.utils import logger
 if TYPE_CHECKING:
     from ncompass.trace.replacers.dynamic import DynamicReplacer
@@ -34,11 +34,15 @@ class CallWrapperTransformer(ast.NodeTransformer):
             wrapped = self._maybe_wrap_call_in_assignment(node)
             if wrapped:
                 return wrapped
-        return self.generic_visit(node)
+        result = self.generic_visit(node)
+        # generic_visit returns the node (possibly transformed), which should be Assign or With
+        return cast(Union[ast.Assign, ast.With], result)
     
     def _maybe_wrap_call_in_assignment(self, assign_node: ast.Assign) -> Optional[ast.With]:
         """Check if assignment call should be wrapped and return wrapped version."""
         call = assign_node.value
+        # We know call is a Call from the caller's isinstance check
+        assert isinstance(call, ast.Call), "Expected Call node"
         
         for wrap_config in self.wrap_calls:
             if self._matches_call_pattern(call, wrap_config['call_pattern']):
@@ -84,6 +88,7 @@ def make_wrapper(old_name: str, target_path: str, kind: str) -> ast.FunctionDef:
         call_attr = ast.Name(id=meth, ctx=ast.Load())
 
     # Signature
+    call_args: List[ast.expr]
     if kind == "static":
         args = ast.arguments(
             posonlyargs=[], args=[], vararg=ast.arg("args"),

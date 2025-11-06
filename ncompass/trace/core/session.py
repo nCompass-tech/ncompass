@@ -60,11 +60,11 @@ class ProfilingSession:
             session_name: Optional name for this session (used for trace/config naming)
         """
         self.trace_output_dir = Path(trace_output_dir)
-        self.cache_dir = cache_dir
+        self.cache_dir = cache_dir or ".cache/ncompass/sessions"
         self.session_name = session_name or "profiling_session"
         self.base_url = base_url or "http://localhost:8000"
 
-        self.config_manager = ConfigManager(cache_dir=cache_dir)
+        self.config_manager = ConfigManager(cache_dir=self.cache_dir)
         
         self.latest_trace_path: Optional[str] = None
         self.latest_trace_name: Optional[str] = None
@@ -120,8 +120,11 @@ class ProfilingSession:
                 endpoint='filter',
                 await_result=True
             )
+            # When await_result=True, submit_queue_request returns a dict, not a string
+            assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
             self.latest_trace_path = result['filtered_trace_path']
         logger.info(f"[ProfilingSession] Profile complete: {self.latest_trace_path}")
+        assert self.latest_trace_path is not None, "latest_trace_path should not be None"
         return self.latest_trace_path
 
     def get_trace_summary(
@@ -158,12 +161,15 @@ class ProfilingSession:
             "end_line": feedback_context.get('end_line'),
         }
         logger.info(f"[ProfilingSession] Generating summary report")
-        self.latest_trace_summary = submit_queue_request(
+        result = submit_queue_request(
             request=summary_request,
             base_url=self.base_url,
             endpoint='summarize',
             await_result=True
         )
+        # When await_result=True, submit_queue_request returns a dict, not a string
+        assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
+        self.latest_trace_summary = result
         
         # Auto-save the summary with associated naming
         self.save_trace_summary(self.latest_trace_summary, trace_path)
@@ -213,7 +219,7 @@ class ProfilingSession:
         
         # Use AI to analyze feedback and generate markers
         source_code = extract_source_code(target_module)
-        new_config = submit_queue_request(
+        result = submit_queue_request(
             request={
                 'feedback_text': feedback_text,
                 'target_module': target_module,
@@ -226,6 +232,9 @@ class ProfilingSession:
             endpoint='analyze_with_feedback',
             await_result=True
         )
+        # When await_result=True, submit_queue_request returns a dict, not a string
+        assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
+        new_config = result
         # Store in config manager
         final_config = self.config_manager.add_config(new_config, merge=True)
         
@@ -458,7 +467,7 @@ class ProfilingSession:
         
         logger.info(f"[ProfilingSession] Filtering trace to only include user annotations")
 
-        self.latest_trace_path = submit_queue_request(
+        result = submit_queue_request(
             request={
                 'trace_path': trace_path,
                 'output_path': output_path,
@@ -472,6 +481,10 @@ class ProfilingSession:
             endpoint='filter',
             await_result=True
         )
+        # When await_result=True, submit_queue_request returns a dict, not a string
+        assert isinstance(result, dict), "Expected dict from submit_queue_request with await_result=True"
+        self.latest_trace_path = result.get('filtered_trace_path')
+        assert self.latest_trace_path is not None, "filtered_trace_path should be in result"
         return self.latest_trace_path
 
 

@@ -19,9 +19,9 @@ Description: NVTX utils for AST rewriting.
 from typing import Optional, Any
 import torch
 from ncompass.trace.infra.utils import tag
-from ncompass.trace.profile.base import _ProfileContextBase
+from ncompass.trace.profile.base import ProfileContextBase
 
-class NvtxContext(_ProfileContextBase):
+class NvtxContext(ProfileContextBase):
     """Context manager for NVTX ranges."""
     def __init__(self, name: str) -> None:
         """Initialize NVTX context with a name."""

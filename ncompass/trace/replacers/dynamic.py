@@ -17,15 +17,15 @@ Description: Replacer classes for AST rewriting.
 """
 
 from dataclasses import dataclass, field
-from ncompass.trace.replacers.base import _Replacer
+from ncompass.trace.replacers.base import ReplacerBase
 
 
 @dataclass
-class DynamicReplacer(_Replacer):
+class DynamicReplacer(ReplacerBase):
     """Dynamically created Replacer from AI-generated configs."""
     _fullname: str
     _class_replacements: dict[str, str] = field(default_factory=dict)
-    _class_func_replacements: dict[str, str] = field(default_factory=dict)
+    _class_func_replacements: dict[str, dict[str, str]] = field(default_factory=dict)
     _class_func_context_wrappings: dict[str, dict[str, dict]] = field(default_factory=dict)
     _func_line_range_wrappings: list[dict] = field(default_factory=list)
     
@@ -38,7 +38,7 @@ class DynamicReplacer(_Replacer):
         return self._class_replacements
     
     @property
-    def class_func_replacements(self) -> dict[str, str]:
+    def class_func_replacements(self) -> dict[str, dict[str, str]]:
         return self._class_func_replacements
     
     @property
