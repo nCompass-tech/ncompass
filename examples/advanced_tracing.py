@@ -178,12 +178,6 @@ def main():
     # print(f"✓ Filtered trace: {filtered}")
     print("✓ Filtering example (uncomment with real traces)")
     
-    print("\n[4.2] Getting marker summary...")
-    # marker_summary = session.get_marker_summary(trace_3)
-    # print(f"Found {marker_summary['total_annotations']} markers")
-    # print(f"Unique markers: {marker_summary['unique_markers']}")
-    print("✓ Marker summary example (uncomment with real traces)")
-    
     # =========================================================================
     # Configuration Management
     # =========================================================================

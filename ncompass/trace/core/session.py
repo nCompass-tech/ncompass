@@ -473,31 +473,5 @@ class ProfilingSession:
             await_result=True
         )
         return self.latest_trace_path
-    
-    def get_marker_summary(self, trace_path: Optional[str] = None) -> Dict[str, Any]:
-        """Get a summary of trace markers (user annotations) in a trace file.
-        
-        Useful for understanding what markers are present before filtering.
-        
-        Args:
-            trace_path: Path to trace file (uses latest if not provided)
-            
-        Returns:
-            Dictionary with marker statistics
-        """
-        trace_path = trace_path or self.latest_trace_path
-        if not trace_path:
-            raise ValueError("No trace file available. Run run_profile() first.")
-        
-        logger.info(f"[ProfilingSession] Analyzing trace markers in: {trace_path}")
-        
-        trace_filter = TraceFilter()
-        summary = trace_filter.get_user_annotation_summary(trace_path)
-        
-        logger.info(
-            f"[ProfilingSession] Found {summary['total_annotations']} markers "
-            f"({summary['unique_markers']} unique)"
-        )
-        
-        return summary
+
 

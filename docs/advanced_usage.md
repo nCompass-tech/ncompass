@@ -74,10 +74,6 @@ filtered_trace = session.filter_trace(
     include_direct_children=False,
     min_duration_us=100.0
 )
-
-# Get marker summary before filtering
-marker_summary = session.get_marker_summary(trace_path)
-print(f"Found {marker_summary['total_annotations']} markers")
 ```
 
 ## Configuration Management
