@@ -12,45 +12,23 @@ This directory contains example scripts demonstrating how to use the nCompass SD
 
 ## Running Examples
 
+### Prerequisites
+Ensure that you have a ncprof server running locally
+
 Each example is self-contained and can be run directly:
 
+### If running from your own workspace
 ```bash
+pip install ncompass  # if not already installed
 python examples/basic_usage.py
 ```
 
-Make sure you have nCompass installed:
-
+### If running from this repo
 ```bash
-pip install ncompass
+nix develop
+python examples/basic_usage.py
 ```
 
-## Example Structure
-
-Each example follows this general pattern:
-
-1. **Setup** - Initialize ProfilingSession and configure
-2. **Execution** - Run the profiling target
-3. **Analysis** - Get and display trace insights
-4. **Iteration** (Advanced) - Submit feedback and refine
-
-## Prerequisites
-
-Some examples may require additional dependencies:
-
-```bash
-# For PyTorch examples
-pip install ncompass[torch]
-
-# For full development environment
-pip install ncompass[dev]
-```
-
-## Example Data
-
-Examples use synthetic workloads to demonstrate profiling capabilities. For real-world usage:
-- Replace model code with your actual inference code
-- Adjust trace output directories as needed
-- Configure analysis service URLs if using custom deployment
 
 ## Support
 
@@ -58,12 +36,4 @@ For questions about examples:
 - Check the [Documentation](https://docs.ncompass.tech)
 - Visit the [Community Forum](https://community.ncompass.tech)
 - View the [API Reference](../docs/api_reference.md)
-
-## Contributing Examples
-
-We welcome example contributions! Please ensure your example:
-- Is self-contained and runnable
-- Includes clear comments explaining each step
-- Demonstrates a specific feature or use case
-- Follows the existing code style
 
