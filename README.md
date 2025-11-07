@@ -9,7 +9,6 @@ Profiling and trace analysis SDK. Built by [nCompass Technologies](https://ncomp
 
 ## Features
 
-- **🚀 High-Performance GPU Kernels** - Custom-built kernels optimized for AI inference
 - **📊 Advanced Profiling** - Built-in performance monitoring and health metrics
 - **🤖 AI-Powered Analysis** - Intelligent trace analysis and bottleneck identification
 - **🔄 Iterative Optimization** - Progressive profiling workflow for targeted improvements
