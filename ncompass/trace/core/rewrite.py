@@ -17,10 +17,28 @@ Description: Top level utils for AST rewriting.
 """
 
 import sys
-from typing import Optional
+from typing import Optional, Dict, Any
+import importlib
+
 from ncompass.trace.core.finder import RewritingFinder
 from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
+from ncompass.trace.core.utils import clear_cached_modules, update_module_references
+from ncompass.trace.core.pydantic import ModuleConfig
+
+
+def _reimport_modules(targets: Dict[str, ModuleConfig], old_modules: Dict[str, Any]) -> None:
+    """Reimport modules and update references."""
+    for module_name in targets.keys():
+        try:
+            importlib.import_module(module_name)
+            logger.debug(f"Re-imported module with rewrites enabled: {module_name}")
+        except Exception as e:
+            logger.warning(f"Failed to re-import module {module_name}: {e}")
+    
+    # Update references in all loaded modules' namespaces
+    update_module_references(old_modules)
+
 
 def enable_rewrites(config: Optional[RewriteConfig] = None) -> None:
     """Enable all AST rewrites.
@@ -29,11 +47,14 @@ def enable_rewrites(config: Optional[RewriteConfig] = None) -> None:
     """
     # Convert RewriteConfig to dict if needed
     config_dict = None
+    old_modules = {}
     if config is not None:
         if isinstance(config, RewriteConfig):
             config_dict = config.to_dict()
+            # Clear modules and get old references
+            old_modules = clear_cached_modules(config.targets)
         else:
-            raise TypeError(f"config must be a dict or RewriteConfig, got {type(config)}")
+            raise TypeError(f"config must be a RewriteConfig instance, got {type(config)}")
     
     # Check if finder already exists
     existing_finder = None
@@ -47,6 +68,8 @@ def enable_rewrites(config: Optional[RewriteConfig] = None) -> None:
         sys.meta_path.remove(existing_finder)
     # Add new finder
     sys.meta_path.insert(0, RewritingFinder(config=config_dict))
+    if config is not None and isinstance(config, RewriteConfig):
+        _reimport_modules(config.targets, old_modules)
     logger.info(f"NC profiling enabled.")
 
 
