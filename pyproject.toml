@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncompass"
-version = "0.1.2"
+version = "0.1.3"
 description = "Profiling and trace analysis SDK"
 readme = "README.md"
 requires-python = ">=3.9"
