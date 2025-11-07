@@ -1,7 +1,9 @@
 # nCompass Python SDK
 
+[![PyPI](https://img.shields.io/pypi/v/ncompass.svg)](https://pypi.org/project/ncompass/)
+[![Downloads](https://static.pepy.tech/badge/ncompass)](https://pepy.tech/project/ncompass)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 Profiling and trace analysis SDK. Built by [nCompass Technologies](https://ncompass.tech).
 
