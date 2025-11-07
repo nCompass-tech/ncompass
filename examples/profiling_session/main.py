@@ -25,7 +25,6 @@ from config import TORCH_LOGS_DIR, PROFILING_SESSION_DIR
 logger.setLevel(logging.DEBUG)
 
 def code_to_run():
-    # Do the import in here so that the AST rewrites can be applied to code in model
     from model import run_model_inference
     run_model_inference(enable_profiler=True)
 
