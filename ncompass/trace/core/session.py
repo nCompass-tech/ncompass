@@ -17,6 +17,7 @@ Description: Main ProfilingSession API for iterative profiling workflow.
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 import glob
@@ -29,6 +30,7 @@ from ncompass.trace.core.rewrite import (
 )
 from ncompass.trace.core.config_manager import ConfigManager
 from ncompass.trace.core.pydantic import RewriteConfig
+from ncompass.trace.core.pydantic import ModuleConfig
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.core.utils import submit_queue_request, extract_source_code
 
@@ -73,6 +75,23 @@ class ProfilingSession:
         
         logger.info(f"[ProfilingSession] Session initialized: {self.session_name}")
     
+
+    def _clear_cached_modules(self, targets: Dict[str, ModuleConfig]) -> None:
+        """Clear cached target modules so they can be re-imported with AST rewrites."""
+        target_modules = list(targets.keys())
+        if target_modules:
+            for module_name in target_modules:
+                if module_name in sys.modules:
+                    logger.debug(f"[ProfilingSession] Clearing cached module: {module_name}")
+                    del sys.modules[module_name]
+                    # Also clear any submodules that might be cached
+                    modules_to_remove = [
+                        name for name in list(sys.modules.keys())
+                        if name == module_name or name.startswith(module_name + '.')
+                    ]
+                    for name in modules_to_remove:
+                        del sys.modules[name]
+        
     def run_profile(
         self,
         user_code: Callable,
@@ -99,6 +118,8 @@ class ProfilingSession:
         # User is managing profiler manually (e.g., vLLM's profiler)
         logger.info("[ProfilingSession] Starting profile with external profiler (no injection)")
         
+        config = RewriteConfig.from_dict(self.config_manager.get_current_config())
+        self._clear_cached_modules(config.targets)
         # Run user code
         try:
             user_code()
@@ -113,7 +134,7 @@ class ProfilingSession:
             result = submit_queue_request(
                 request={
                     'trace_path': self.latest_trace_path,
-                    'output_path': self.latest_trace_path,
+                    # 'output_path': self.latest_trace_path,
                     'filter_args': filter_trace_args or {}
                 },
                 base_url=self.base_url,
@@ -253,7 +274,10 @@ class ProfilingSession:
         
         # Assumes external profiler
         feedback_config_obj = RewriteConfig.from_dict(feedback_config)
-        logger.info(f"[ProfilingSession] Applying targeted markers: {self.config_manager.iteration} iterations (external profiler)")
+        logger.info(
+            f"[ProfilingSession] Applying targeted markers: {self.config_manager.iteration} iterations "
+            f"(external profiler: {feedback_config_obj.full_trace_mode}) "
+        )
 
         enable_rewrites(config=feedback_config_obj)
         return feedback_config
@@ -392,14 +416,32 @@ class ProfilingSession:
     def _find_latest_trace(self) -> str:
         """Find the most recently created trace file.
         
+        Looks for trace files in multiple formats:
+        - *.pt.trace.json* (PyTorch trace format)
+        - trace.json (Chrome trace format from PyTorch profiler)
+        - *.json (any JSON trace files)
+        
         Returns:
             Path to latest trace file
         """
-        trace_pattern = str(self.trace_output_dir / "*.pt.trace.json*")
-        trace_files = glob.glob(trace_pattern)
+        # Try multiple patterns in order of preference
+        patterns = [
+            "*.pt.trace.json*",  # Preferred PyTorch trace format
+            "trace.json",         # Chrome trace format from PyTorch profiler
+            "*.json",            # Any JSON trace files
+        ]
+        
+        trace_files = []
+        for pattern in patterns:
+            trace_pattern = str(self.trace_output_dir / pattern)
+            found_files = glob.glob(trace_pattern)
+            trace_files.extend(found_files)
         
         if not trace_files:
-            raise FileNotFoundError(f"No trace files found in {self.trace_output_dir}")
+            raise FileNotFoundError(
+                f"No trace files found in {self.trace_output_dir}. "
+                f"Expected formats: *.pt.trace.json*, trace.json, or *.json"
+            )
         
         # Sort by modification time, most recent first
         latest_trace = max(trace_files, key=os.path.getmtime)
