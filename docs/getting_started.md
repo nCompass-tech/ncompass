@@ -80,9 +80,6 @@ structured_data = summary['structured']
 ```
 
 ## Next Steps
-
-- Explore the [API Reference](api_reference.md) for detailed documentation
-- Check out [Advanced Usage](advanced_usage.md) for optimization techniques
 - Visit [Examples](../examples/) for complete working examples
 
 ## Requirements
@@ -90,11 +87,4 @@ structured_data = summary['structured']
 - Python 3.8+
 - PyTorch 2.0+ (optional, for torch profiling features)
 - CUDA-capable GPU (optional, for GPU profiling)
-
-## Support
-
-For questions and support:
-- Visit our [Community Forum](https://community.ncompass.tech)
-- Check the [Documentation Portal](https://docs.ncompass.tech)
-- Email: support@ncompass.tech
-
+- nCompass engine running locally
