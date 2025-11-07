@@ -17,9 +17,13 @@
 import importlib.util
 from typing import Optional, Union, Any
 from copy import deepcopy
-from ncompass.trace.infra.utils import logger
 import requests
 import time
+import sys
+import gc
+from typing import Dict
+from ncompass.trace.core.pydantic import ModuleConfig
+from ncompass.trace.infra.utils import logger
 
 
 def extract_source_code(target_module: str) -> Optional[str]:
@@ -174,3 +178,171 @@ def submit_queue_request(
             raise ValueError(f"Request failed: {error}")
     else:
         return request_id
+
+def clear_cached_modules(targets: Dict[str, ModuleConfig]) -> Dict[str, Any]:
+    """Clear cached modules and return old module references for updating.
+    
+    Returns:
+        Dictionary mapping module names to their old module objects
+    """
+    old_modules = {}
+    target_modules = list(targets.keys())
+    if target_modules:
+        for module_name in target_modules:
+            if module_name in sys.modules:
+                logger.debug(f"Clearing cached module: {module_name}")
+                # Store reference to old module before deleting
+                old_modules[module_name] = sys.modules[module_name]
+                del sys.modules[module_name]
+                # Also clear any submodules that might be cached
+                modules_to_remove = [
+                    name for name in list(sys.modules.keys())
+                    if name == module_name or name.startswith(module_name + '.')
+                ]
+                for name in modules_to_remove:
+                    if name in sys.modules:
+                        del sys.modules[name]
+    return old_modules
+
+def _should_skip_referrer(ref: Any, old_modules: Dict[str, Any], this_module: Any = None) -> bool:
+    """Check if a referrer should be skipped when updating references.
+    
+    Args:
+        ref: The referrer object to check
+        old_modules: Dictionary of old modules (to skip)
+        this_module: The current module (to skip its internals)
+    
+    Returns:
+        True if the referrer should be skipped, False otherwise
+    """
+    if ref is old_modules or ref is sys.modules:
+        return True
+    if this_module is not None:
+        if ref is this_module or getattr(ref, "__module__", None) == __name__:
+            return True
+    return False
+
+
+def _update_dict_references(
+    ref: dict,
+    old_obj: Any,
+    new_obj: Any,
+    old_name: str,
+    attr_name: Optional[str] = None
+) -> None:
+    """Update references in a dictionary namespace.
+    
+    Args:
+        ref: Dictionary (typically a module's __dict__) to update
+        old_obj: Old object to find and replace
+        new_obj: New object to replace with
+        old_name: Name of the module (for logging)
+        attr_name: Optional attribute name (for logging)
+    """
+    for k, v in list(ref.items()):
+        if v is old_obj:
+            ref[k] = new_obj
+            if attr_name:
+                logger.debug(
+                    f"Updated symbol ref {k} in {ref.get('__name__', 'dict')} "
+                    f"from {old_name}.{attr_name} to new {old_name}.{attr_name}"
+                )
+            else:
+                logger.debug(
+                    f"Updated module ref {k} from old {old_name} to new {old_name}"
+                )
+
+
+def _update_direct_module_references(
+    old_name: str,
+    old_mod: Any,
+    new_mod: Any,
+    old_modules: Dict[str, Any]
+) -> None:
+    """Update direct module references (e.g., `import model`).
+    
+    Args:
+        old_name: Name of the module
+        old_mod: Old module object
+        new_mod: New module object
+        old_modules: Dictionary of old modules (for skipping)
+    """
+    for ref in gc.get_referrers(old_mod):
+        if _should_skip_referrer(ref, old_modules):
+            continue
+        
+        if isinstance(ref, dict):
+            _update_dict_references(ref, old_mod, new_mod, old_name)
+
+
+def _update_attribute_references(
+    old_name: str,
+    old_mod: Any,
+    new_mod: Any,
+    old_modules: Dict[str, Any],
+    this_module: Any
+) -> None:
+    """Update from-imported symbol references (e.g., `from model import func`).
+    
+    Args:
+        old_name: Name of the module
+        old_mod: Old module object
+        new_mod: New module object
+        old_modules: Dictionary of old modules (for skipping)
+        this_module: Current module (for skipping)
+    """
+    old_vars = getattr(old_mod, "__dict__", {})
+    new_vars = getattr(new_mod, "__dict__", {})
+    
+    for attr_name, old_attr in list(old_vars.items()):
+        # Only care about real attributes with a changed counterpart
+        if attr_name.startswith("__"):
+            continue
+        if attr_name not in new_vars:
+            continue
+        
+        new_attr = new_vars[attr_name]
+        if new_attr is old_attr:
+            continue  # not rewritten
+        
+        # Walk all referrers of the old attribute and swap to new_attr
+        for ref in gc.get_referrers(old_attr):
+            # Skip internals
+            if ref is old_vars or ref is new_vars:
+                continue
+            if _should_skip_referrer(ref, old_modules, this_module):
+                continue
+            
+            # Typical case: module/global/class namespace dict
+            if isinstance(ref, dict):
+                _update_dict_references(ref, old_attr, new_attr, old_name, attr_name)
+
+
+def update_module_references(old_modules: Dict[str, Any]) -> None:
+    """Update references to old modules and their attributes (incl. from x import y).
+
+    This:
+      1. Rebinds references to old module objects to the new modules.
+      2. Rebinds references to old attributes (functions, classes, etc.)
+         to the corresponding objects on the new module, so
+         `from x import y` gets updated.
+    
+    Args:
+        old_modules: Dictionary mapping module names to their old module objects
+    """
+    if not old_modules:
+        return
+    
+    # Avoid patching our own internals
+    this_module = sys.modules.get(__name__)
+    
+    for old_name, old_mod in old_modules.items():
+        new_mod = sys.modules.get(old_name)
+        if new_mod is None:
+            continue
+        
+        # 1) Fix direct module references (e.g., `import model`)
+        _update_direct_module_references(old_name, old_mod, new_mod, old_modules)
+        
+        # 2) Fix from-imported symbols (e.g., `from model import func`)
+        _update_attribute_references(old_name, old_mod, new_mod, old_modules, this_module)
