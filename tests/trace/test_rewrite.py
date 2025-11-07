@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from ncompass.trace.core.rewrite import enable_rewrites
 from ncompass.trace.core.finder import RewritingFinder
+from ncompass.trace.core.pydantic import RewriteConfig, ModuleConfig
+from ncompass.trace.core.utils import clear_cached_modules, update_module_references
 
 
 class TestEnableRewrites(unittest.TestCase):
@@ -17,11 +19,21 @@ class TestEnableRewrites(unittest.TestCase):
         """Set up test fixtures."""
         # Store original meta_path to restore after tests
         self.original_meta_path = sys.meta_path.copy()
+        # Store original sys.modules state
+        self.original_modules = sys.modules.copy()
     
     def tearDown(self):
         """Clean up after tests."""
         # Restore original meta_path
         sys.meta_path[:] = self.original_meta_path
+        # Clean up any test modules we created
+        modules_to_remove = [
+            name for name in sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in sys.modules:
+                del sys.modules[name]
     
     def test_enable_rewrites_adds_finder_to_meta_path(self):
         """Test that enable_rewrites adds RewritingFinder to sys.meta_path."""
@@ -82,6 +94,250 @@ class TestEnableRewrites(unittest.TestCase):
         self.assertEqual(len(rewriting_finders), 1)
         # Should be a different instance (replaced, not reused)
         self.assertIsNot(rewriting_finders[0], existing_finder)
+
+
+class TestClearCachedModules(unittest.TestCase):
+    """Test cases for clear_cached_modules function."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.original_modules = sys.modules.copy()
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clean up any test modules we created
+        modules_to_remove = [
+            name for name in sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in sys.modules:
+                del sys.modules[name]
+    
+    def test_clear_cached_modules_removes_from_sys_modules(self):
+        """Test that clear_cached_modules removes modules from sys.modules."""
+        # Create a test module
+        test_module = type(sys)('test_module')
+        sys.modules['test_module'] = test_module
+        
+        # Clear it
+        targets = {'test_module': ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Module should be removed from sys.modules
+        self.assertNotIn('test_module', sys.modules)
+        # Old module reference should be returned
+        self.assertIn('test_module', old_modules)
+        self.assertIs(old_modules['test_module'], test_module)
+    
+    def test_clear_cached_modules_handles_nonexistent_module(self):
+        """Test that clear_cached_modules handles modules not in sys.modules."""
+        targets = {'nonexistent_module': ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Should return empty dict for nonexistent module
+        self.assertEqual(old_modules, {})
+        self.assertNotIn('nonexistent_module', sys.modules)
+    
+    def test_clear_cached_modules_clears_submodules(self):
+        """Test that clear_cached_modules clears submodules."""
+        # Create test modules
+        parent_module = type(sys)('parent')
+        child_module = type(sys)('parent.child')
+        sys.modules['parent'] = parent_module
+        sys.modules['parent.child'] = child_module
+        
+        # Clear parent
+        targets = {'parent': ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Both should be removed
+        self.assertNotIn('parent', sys.modules)
+        self.assertNotIn('parent.child', sys.modules)
+        # Only parent should be in old_modules
+        self.assertIn('parent', old_modules)
+        self.assertNotIn('parent.child', old_modules)
+
+
+class TestUpdateModuleReferences(unittest.TestCase):
+    """Test cases for update_module_references function."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.original_modules = sys.modules.copy()
+        # Create a temporary test module
+        self.create_test_module()
+        # Store module-level references for testing
+        self.test_module_refs = {}
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clean up test modules
+        modules_to_remove = [
+            name for name in sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in sys.modules:
+                del sys.modules[name]
+        # Clean up module-level references
+        for key in list(self.test_module_refs.keys()):
+            del self.test_module_refs[key]
+    
+    def create_test_module(self):
+        """Create a test module with a function."""
+        test_module_code = '''
+def test_function():
+    return "original_value"
+
+TEST_CONSTANT = 42
+'''
+        # Create module in memory
+        test_module = type(sys)('test_ref_module')
+        exec(test_module_code, test_module.__dict__)
+        sys.modules['test_ref_module'] = test_module
+        return test_module
+    
+    def test_update_direct_module_reference(self):
+        """Test that direct module references in module dicts are updated."""
+        # Get the old module
+        old_module = sys.modules['test_ref_module']
+        
+        # Store reference in a module-level dict (simulating module import)
+        self.test_module_refs['test_ref_module'] = old_module
+        
+        # Create a new version of the module
+        new_module = type(sys)('test_ref_module')
+        new_module.test_function = lambda: "new_value"
+        new_module.TEST_CONSTANT = 100
+        sys.modules['test_ref_module'] = new_module
+        
+        # Update references
+        old_modules = {'test_ref_module': old_module}
+        update_module_references(old_modules)
+        
+        # The reference in the dict should now point to the new module
+        self.assertIs(self.test_module_refs['test_ref_module'], new_module)
+        self.assertEqual(self.test_module_refs['test_ref_module'].TEST_CONSTANT, 100)
+    
+    def test_update_from_imported_symbol(self):
+        """Test that from-imported symbols in module dicts are updated."""
+        # Get the old module and function
+        old_module = sys.modules['test_ref_module']
+        old_function = old_module.test_function
+        
+        # Store function reference in a module-level dict (simulating from-import)
+        self.test_module_refs['test_function'] = old_function
+        
+        # Create a new version with different function
+        new_module = type(sys)('test_ref_module')
+        def new_test_function():
+            return "new_value"
+        new_module.test_function = new_test_function
+        new_module.TEST_CONSTANT = 100
+        sys.modules['test_ref_module'] = new_module
+        
+        # Update references
+        old_modules = {'test_ref_module': old_module}
+        update_module_references(old_modules)
+        
+        # The function reference in the dict should be updated
+        self.assertIs(self.test_module_refs['test_function'], new_test_function)
+        self.assertEqual(self.test_module_refs['test_function'](), "new_value")
+
+
+class TestModuleReloadingIntegration(unittest.TestCase):
+    """Integration tests for module clearing and reloading."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.original_meta_path = sys.meta_path.copy()
+        self.original_modules = sys.modules.copy()
+        # Remove any existing RewritingFinder
+        sys.meta_path = [f for f in sys.meta_path if not isinstance(f, RewritingFinder)]
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        sys.meta_path[:] = self.original_meta_path
+        # Clean up test modules
+        modules_to_remove = [
+            name for name in sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in sys.modules:
+                del sys.modules[name]
+    
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    @patch('importlib.import_module')
+    def test_enable_rewrites_clears_and_reimports_modules(self, mock_import_module):
+        """Test that enable_rewrites clears and re-imports target modules."""
+        # Create a test module
+        test_module = type(sys)('test_integration_module')
+        test_module.value = "original"
+        sys.modules['test_integration_module'] = test_module
+        
+        # Mock the re-import to return a new module AND put it in sys.modules
+        new_module = type(sys)('test_integration_module')
+        new_module.value = "reloaded"
+        
+        def mock_import_side_effect(module_name):
+            sys.modules[module_name] = new_module
+            return new_module
+        
+        mock_import_module.side_effect = mock_import_side_effect
+        
+        # Enable rewrites with this module as target
+        config = RewriteConfig(
+            targets={
+                'test_integration_module': ModuleConfig()
+            }
+        )
+        enable_rewrites(config)
+        
+        # Should have called import_module to re-import
+        mock_import_module.assert_called_once_with('test_integration_module')
+        # Module should be in sys.modules (the new one)
+        self.assertIn('test_integration_module', sys.modules)
+        self.assertEqual(sys.modules['test_integration_module'].value, "reloaded")
+    
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    @patch('importlib.import_module')
+    def test_enable_rewrites_updates_pre_imported_module_reference(self, mock_import_module):
+        """Test that enable_rewrites updates references to pre-imported modules."""
+        # Create and import test module BEFORE enabling rewrites
+        old_module = type(sys)('test_preimport_module')
+        old_module.func = lambda: "original"
+        sys.modules['test_preimport_module'] = old_module
+        
+        # Store reference in instance variable (accessible to gc.get_referrers)
+        self.test_refs = {}
+        self.test_refs['test_preimport_module'] = old_module
+        self.test_refs['func'] = old_module.func
+        
+        # Mock the re-import to return a new module AND put it in sys.modules
+        new_module = type(sys)('test_preimport_module')
+        new_module.func = lambda: "reloaded"
+        
+        def mock_import_side_effect(module_name):
+            sys.modules[module_name] = new_module
+            return new_module
+        
+        mock_import_module.side_effect = mock_import_side_effect
+        
+        # Enable rewrites
+        config = RewriteConfig(
+            targets={
+                'test_preimport_module': ModuleConfig()
+            }
+        )
+        enable_rewrites(config)
+        
+        # Should have called import_module
+        mock_import_module.assert_called_once_with('test_preimport_module')
+        # References should be updated
+        self.assertIs(self.test_refs['test_preimport_module'], new_module)
+        self.assertEqual(self.test_refs['func'](), "reloaded")
 
 
 if __name__ == '__main__':
