@@ -81,13 +81,17 @@
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ 
                                         pkgs.stdenv.cc.cc 
                                     ]}:$LD_LIBRARY_PATH
+            export PYTHONPATH="$PWD:$PYTHONPATH"
           '' + venv_pip_pkgs;
         };
       
       osxNixEnvPackages = pkgs : 
         pkgs.mkShell {
           buildInputs = (python_pkgs pkgs) ++ (system_pkgs pkgs);
-          shellHook = venv_pip_pkgs;
+          shellHook = 
+          ''
+            export PYTHONPATH="$PWD:$PYTHONPATH"
+          '' + venv_pip_pkgs;
         };
     
     in {

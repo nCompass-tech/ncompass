@@ -22,77 +22,9 @@ Install via pip:
 pip install ncompass
 ```
 
-## Quick Start
-
-```python
-from ncompass.trace import ProfilingSession
-
-# Initialize profiling session
-session = ProfilingSession(
-    trace_output_dir="./traces",
-    cache_dir="./cache"
-)
-
-# Profile your inference code
-def my_inference():
-    # Your model inference here
-    outputs = model(inputs)
-    return outputs
-
-# Run profiling
-trace_path = session.run_profile(my_inference)
-
-# Get AI-powered insights
-summary = session.get_trace_summary(trace_path)
-print(summary['markdown'])
-```
-
-## Core Capabilities
-
-### Iterative Profiling Workflow
-
-```python
-# 1. Capture initial trace
-trace = session.run_profile(inference_fn)
-
-# 2. Get AI analysis
-summary = session.get_trace_summary(trace)
-
-# 3. Submit feedback for targeted profiling
-session.submit_feedback(
-    feedback_text="Why is attention slow?",
-    target_module="model.attention",
-    start_line=100,
-    end_line=200
-)
-
-# 4. Apply targeted markers and re-run
-session.apply_targeted_markers()
-trace = session.run_profile(inference_fn)
-```
-
-### AST-Level Instrumentation
-
-```python
-from ncompass.trace import enable_rewrites, RewriteConfig
-
-# Enable automatic code instrumentation
-config = RewriteConfig(targets={...})
-enable_rewrites(config=config)
-
-# Your code runs with automatic profiling markers
-run_inference()
-```
-
-### Trace Filtering
-
-```python
-# Filter traces to focus on key operations
-filtered_trace = session.filter_trace(
-    include_cuda_kernels=True,
-    min_duration_us=100.0
-)
-```
+## Examples
+<!-- TODO: Update readme after setting up actual examples -->
+Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass) for examples.
 
 ## Documentation
 
