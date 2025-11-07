@@ -17,7 +17,6 @@ Description: Main ProfilingSession API for iterative profiling workflow.
 """
 
 import os
-import sys
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 import glob
@@ -30,9 +29,10 @@ from ncompass.trace.core.rewrite import (
 )
 from ncompass.trace.core.config_manager import ConfigManager
 from ncompass.trace.core.pydantic import RewriteConfig
-from ncompass.trace.core.pydantic import ModuleConfig
 from ncompass.trace.infra.utils import logger
-from ncompass.trace.core.utils import submit_queue_request, extract_source_code
+from ncompass.trace.core.utils import (
+    submit_queue_request, extract_source_code
+)
 
 
 class ProfilingSession:
@@ -74,23 +74,6 @@ class ProfilingSession:
         self.latest_feedback_context: Optional[Dict[str, Any]] = None  # Store latest feedback for summaries
         
         logger.info(f"[ProfilingSession] Session initialized: {self.session_name}")
-    
-
-    def _clear_cached_modules(self, targets: Dict[str, ModuleConfig]) -> None:
-        """Clear cached target modules so they can be re-imported with AST rewrites."""
-        target_modules = list(targets.keys())
-        if target_modules:
-            for module_name in target_modules:
-                if module_name in sys.modules:
-                    logger.debug(f"[ProfilingSession] Clearing cached module: {module_name}")
-                    del sys.modules[module_name]
-                    # Also clear any submodules that might be cached
-                    modules_to_remove = [
-                        name for name in list(sys.modules.keys())
-                        if name == module_name or name.startswith(module_name + '.')
-                    ]
-                    for name in modules_to_remove:
-                        del sys.modules[name]
         
     def run_profile(
         self,
@@ -117,9 +100,7 @@ class ProfilingSession:
         
         # User is managing profiler manually (e.g., vLLM's profiler)
         logger.info("[ProfilingSession] Starting profile with external profiler (no injection)")
-        
-        config = RewriteConfig.from_dict(self.config_manager.get_current_config())
-        self._clear_cached_modules(config.targets)
+
         # Run user code
         try:
             user_code()
