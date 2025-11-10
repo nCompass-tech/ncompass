@@ -1,2 +1,4 @@
 vscode/ncprof-vscode-0.0.1.vsix filter=lfs diff=lfs merge=lfs -text
 vscode/ncprof-vscode-0.0.2.vsix filter=lfs diff=lfs merge=lfs -text
+vscode/ncprof-vscode-0.0.2-dev.0.vsix filter=lfs diff=lfs merge=lfs -text
+vscode/ncprof-vscode-0.0.3-dev.0.vsix filter=lfs diff=lfs merge=lfs -text
