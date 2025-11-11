@@ -4,7 +4,7 @@ This directory contains example scripts demonstrating how to use the nCompass SD
 
 ## Available Examples
 
-The best way to use our tool is via our VSCode extension. However if you wish to use it fully programmatically, this directory contains a repository of examples.
+The best way to use our tool is via our [VSCode extension](https://docs.ncompass.tech/ncprof/quick-start). However if you wish to use it fully programmatically, this directory contains a repository of examples.
 
 ### Basic Examples
 - **[basic_example](basic_example/main.py)** - Basic example to get familiar with the concepts
