@@ -81,7 +81,7 @@ class RewritingFinder(_RewritingFinderBase):
         filepath_to_fullname = {}
         for fullname in self.target_fullnames:
             # First, check if config has a file_path field
-            config_file_path = self.merged_configs.get(fullname, {}).get('file_path')
+            config_file_path = self.merged_configs.get(fullname, {}).get('filePath')
             
             if config_file_path:
                 # Use the file path from config if available

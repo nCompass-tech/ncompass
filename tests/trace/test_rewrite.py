@@ -466,7 +466,7 @@ class TestLocalImports(unittest.TestCase):
         config = RewriteConfig(
             targets={
                 fully_qualified_name: ModuleConfig(
-                    file_path=model_file,
+                    filePath=model_file,
                     func_line_range_wrappings=[
                         {
                             'function': 'forward',
