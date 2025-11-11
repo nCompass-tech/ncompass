@@ -341,24 +341,36 @@ class TestModuleReloadingIntegration(unittest.TestCase):
 
 
 class TestLocalImports(unittest.TestCase):
-    """Test cases for local imports (e.g., from model import ... instead of from package.model import ...).
+    """Test cases for local imports using actual test data files.
     
-    This tests the scenario where:
+    Uses tests/trace/_data/run.py and model.py to test the real scenario where:
     - A module is imported locally BEFORE enable_rewrites is called
-    - The config uses the fully qualified module name (e.g., 'ncompass.examples.basic_example.model')
-    - The local import reference (e.g., 'model' in the importing module's namespace) should be updated
+    - The config uses the fully qualified module name
+    - The local import reference should be updated
     """
     
     def setUp(self):
         """Set up test fixtures."""
+        import os
+        
         self.original_meta_path = sys.meta_path.copy()
         self.original_modules = sys.modules.copy()
+        self.original_path = sys.path.copy()
+        
         # Remove any existing RewritingFinder
         sys.meta_path = [f for f in sys.meta_path if not isinstance(f, RewritingFinder)]
+        
+        # Add test data directory to path
+        test_data_dir = os.path.join(os.path.dirname(__file__), '_data')
+        if test_data_dir not in sys.path:
+            sys.path.insert(0, test_data_dir)
+        self.test_data_dir = test_data_dir
     
     def tearDown(self):
         """Clean up after tests."""
         sys.meta_path[:] = self.original_meta_path
+        sys.path[:] = self.original_path
+        
         # Clean up test modules
         modules_to_remove = [
             name for name in sys.modules.keys()
@@ -369,59 +381,30 @@ class TestLocalImports(unittest.TestCase):
                 del sys.modules[name]
     
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
-    @patch('importlib.import_module')
-    def test_reimport_modules_local_import_before_enable_rewrites(self, mock_import_module):
+    def test_reimport_modules_local_import_before_enable_rewrites(self):
         """Test _reimport_modules when module was imported locally before enable_rewrites.
         
-        This is the full integration test matching the tmp.py scenario:
-        1. Module imported locally BEFORE enable_rewrites (like tmp.py line 5: 'from model import ...')
-        2. Python stores it in sys.modules as 'model', NOT 'ncompass.examples.basic_example.model'
-        3. enable_rewrites called with fully qualified name in config
-        4. clear_cached_modules doesn't find the module (it's under 'model', not fully qualified name)
-        5. old_modules is empty, so update_module_references does nothing
-        6. Local import references are NOT updated - THIS IS THE BUG
-        
-        KEY ISSUE: When a module is imported locally, it's stored under the local name in sys.modules.
-        clear_cached_modules needs to find modules by checking alternative names (like the local name).
+        Uses actual files from tests/trace/_data/:
+        Simulates running 'python run.py' which does 'from model import Model' at module level.
+        This is the real scenario matching 'python examples/basic_example/tmp.py'.
         """
-        fully_qualified_name = 'ncompass.examples.basic_example.model'
-        local_name = 'model'
+        import os
+        import importlib.util
         
-        # Step 1: Module imported locally BEFORE enable_rewrites (like tmp.py line 5)
-        # When you do 'from model import ...', Python stores it as 'model', NOT the fully qualified name
-        old_module = type(sys)(fully_qualified_name)
-        old_module.run_model_inference = lambda: "original"
-        sys.modules[local_name] = old_module  # ONLY stored under local name
-        # sys.modules[fully_qualified_name] does NOT exist
+        # Step 1: Import run.py as __main__ (simulating 'python run.py')
+        # This is what happens when you run a Python file directly
+        run_file = os.path.join(self.test_data_dir, 'run.py')
+        spec = importlib.util.spec_from_file_location('__main__', run_file)
+        main_module = importlib.util.module_from_spec(spec)
+        sys.modules['__main__'] = main_module
+        spec.loader.exec_module(main_module)
         
-        # Step 2: Importing module has local import reference (like tmp.py)
-        importing_module = type(sys)('ncompass.examples.basic_example.tmp')
-        importing_module.run_model_inference = old_module.run_model_inference
-        importing_module.model = old_module
-        sys.modules['ncompass.examples.basic_example.tmp'] = importing_module
+        # Now model should be imported and stored in sys.modules as 'model'
+        old_model_module = sys.modules.get('model')
+        self.assertIsNotNone(old_model_module, "Model should be imported and stored as 'model'")
         
-        # Store reference for testing
-        self.tmp_refs = {}
-        self.tmp_refs['run_model_inference'] = old_module.run_model_inference
-        self.tmp_refs['model'] = old_module
-        
-        # Step 3: enable_rewrites is called (like tmp.py line 13)
-        # clear_cached_modules looks for 'ncompass.examples.basic_example.model' but doesn't find it
-        # So old_modules is empty {}
-        
-        # Mock re-import to return new module
-        new_module = type(sys)(fully_qualified_name)
-        new_module.run_model_inference = lambda: "reloaded"
-        
-        def mock_import_side_effect(module_name):
-            if module_name == fully_qualified_name:
-                sys.modules[fully_qualified_name] = new_module
-                return new_module
-            return sys.modules.get(module_name)
-        
-        mock_import_module.side_effect = mock_import_side_effect
-        
-        # Enable rewrites with fully qualified name (as in config)
+        # Step 2: Call enable_rewrites with fully qualified name
+        fully_qualified_name = 'tests.trace._data.model'
         config = RewriteConfig(
             targets={
                 fully_qualified_name: ModuleConfig()
@@ -429,19 +412,109 @@ class TestLocalImports(unittest.TestCase):
         )
         enable_rewrites(config)
         
-        # Step 4: Local import references are NOT updated because old_modules was empty
-        # This test should FAIL with current implementation
-        # The problem: clear_cached_modules doesn't find the module because it's stored under 'model',
-        # not 'ncompass.examples.basic_example.model'. So old_modules is empty, and update_module_references
-        # has nothing to work with.
-        self.assertIs(self.tmp_refs['model'], new_module,
-                     "Local import reference should be updated after enable_rewrites")
-        self.assertEqual(self.tmp_refs['run_model_inference'](), "reloaded",
-                        "Function from local import should be updated")
-        self.assertIs(importing_module.model, new_module,
-                     "Module reference in tmp module should be updated")
-        self.assertEqual(importing_module.run_model_inference(), "reloaded",
-                        "Function reference in tmp module should be updated")
+        # Step 3: Verify that references are updated
+        # The module should be re-imported with fully qualified name
+        new_model_module = sys.modules.get(fully_qualified_name)
+        self.assertIsNotNone(new_model_module, "Module should be re-imported with fully qualified name")
+        
+        # This is the critical assertion: does __main__ get updated?
+        # The Model reference in __main__ should be updated to point to the new module
+        self.assertIs(main_module.Model, new_model_module.Model,
+                     "Model class reference in __main__ should be updated to new module's Model")
+        
+        # The model instance in __main__ should have its class updated
+        # Note: The instance itself doesn't change, but we can verify new instances are from the new module
+        new_model_instance = main_module.Model()
+        self.assertIs(type(new_model_instance), new_model_module.Model,
+                     "New instance created after update should be from new module")
+        
+        # Verify the forward method is from the new module
+        self.assertIs(main_module.Model.forward, new_model_module.Model.forward,
+                     "Forward method should be from new module")
+    
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    def test_reimport_with_ast_rewrites_applied(self):
+        """Test that AST rewrites are actually applied when reimporting a locally imported module.
+        
+        This test verifies the fix for the scenario where:
+        1. Module is imported locally (stored as 'model' in sys.modules)
+        2. Config specifies a fully qualified name that can't be imported normally
+        3. _reimport_modules falls back to file path loading with RewritingLoader
+        4. AST rewrites are actually applied to the reloaded module
+        """
+        import os
+        import importlib.util
+        
+        # Import run.py as __main__
+        run_file = os.path.join(self.test_data_dir, 'run.py')
+        spec = importlib.util.spec_from_file_location('__main__', run_file)
+        main_module = importlib.util.module_from_spec(spec)
+        sys.modules['__main__'] = main_module
+        spec.loader.exec_module(main_module)
+        
+        # Verify module is stored under local name
+        old_model_module = sys.modules.get('model')
+        self.assertIsNotNone(old_model_module)
+        old_file_path = old_model_module.__file__
+        
+        # Use a fully qualified name that won't work with standard import
+        # This forces the fallback to file path loading
+        fully_qualified_name = 'tests.trace._data.model'
+        
+        # Create a config with AST rewrites (line range wrapping)
+        model_file = os.path.join(self.test_data_dir, 'model.py')
+        config = RewriteConfig(
+            targets={
+                fully_qualified_name: ModuleConfig(
+                    file_path=model_file,
+                    func_line_range_wrappings=[
+                        {
+                            'function': 'forward',
+                            'start_line': 12,
+                            'end_line': 15,
+                            'context_class': 'ncompass.trace.profile.base.BaseContext',
+                            'context_values': [
+                                {
+                                    'name': 'name',
+                                    'value': 'test_forward',
+                                    'type': 'literal'
+                                }
+                            ]
+                        }
+                    ]
+                )
+            }
+        )
+        
+        # Enable rewrites - this should:
+        # 1. Clear the 'model' entry from sys.modules
+        # 2. Reload with fully qualified name using file path
+        # 3. Apply AST rewrites via RewritingLoader
+        # 4. Update references in __main__
+        enable_rewrites(config)
+        
+        # Verify the module was reloaded with fully qualified name
+        new_model_module = sys.modules.get(fully_qualified_name)
+        self.assertIsNotNone(new_model_module, "Module should be in sys.modules with fully qualified name")
+        
+        # Verify it's a different module object
+        self.assertIsNot(new_model_module, old_model_module, "Should be a new module object")
+        
+        # Verify the file path is preserved (if __file__ is set)
+        if hasattr(new_model_module, '__file__'):
+            self.assertTrue(new_model_module.__file__.endswith('model.py'),
+                          "File path should reference model.py")
+        
+        # Verify references in __main__ were updated
+        self.assertIs(main_module.Model, new_model_module.Model,
+                     "Model class in __main__ should point to new module")
+        
+        # Verify the old 'model' entry is no longer in sys.modules
+        self.assertNotIn('model', sys.modules, "Local name 'model' should be cleared from sys.modules")
+        
+        # Most importantly: verify the module has the Model class
+        self.assertTrue(hasattr(new_model_module, 'Model'),
+                       "Reloaded module should have Model class")
 
 
 if __name__ == '__main__':

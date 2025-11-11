@@ -555,40 +555,39 @@ class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
     def test_update_module_references_local_import_before_rewrite(self):
         """Test update_module_references when module was imported locally before enable_rewrites.
         
-        Simulates tmp.py scenario:
-        - When running 'python examples/basic_example/tmp.py', line 5 does 'from model import run_model_inference'
-        - Python stores the module in sys.modules as 'model' (local name), NOT as 'ncompass.examples.basic_example.model'
-        - enable_rewrites is called with config containing 'ncompass.examples.basic_example.model'
-        - clear_cached_modules looks for 'ncompass.examples.basic_example.model' but doesn't find it (it's under 'model')
-        - So old_modules is empty {}, and update_module_references does nothing
-        - The references in tmp.py's namespace still point to the old module
-        
-        KEY ISSUE: When a module is imported locally, it's stored under the local name in sys.modules,
-        not the fully qualified name. clear_cached_modules needs to find modules by checking alternative names.
+        Uses actual files from tests/trace/_data/:
+        Simulates running 'python run.py' which does 'from model import Model' at module level.
+        This is the real scenario matching 'python examples/basic_example/tmp.py'.
         """
+        import os
+        import importlib.util
         from ncompass.trace.core.utils import update_module_references, clear_cached_modules
         from ncompass.trace.core.pydantic import ModuleConfig
         
-        # Fully qualified name (as in config)
-        fully_qualified_name = 'ncompass.examples.basic_example.model'
-        local_name = 'model'
+        # Add test data directory to path
+        test_data_dir = os.path.join(os.path.dirname(__file__), '_data')
+        if test_data_dir not in self.sys.path:
+            self.sys.path.insert(0, test_data_dir)
         
-        # Module imported locally BEFORE enable_rewrites
-        # CRITICAL: When you do 'from model import ...' locally, Python stores it as 'model', NOT the fully qualified name
-        old_module = type(self.sys)(fully_qualified_name)
-        old_module.run_model_inference = lambda: "original_result"
-        self.sys.modules[local_name] = old_module  # ONLY stored under local name
-        # self.sys.modules[fully_qualified_name] does NOT exist
+        # Import run.py as __main__ (simulating 'python run.py')
+        run_file = os.path.join(test_data_dir, 'run.py')
+        spec = importlib.util.spec_from_file_location('__main__', run_file)
+        main_module = importlib.util.module_from_spec(spec)
+        self.sys.modules['__main__'] = main_module
+        spec.loader.exec_module(main_module)
         
-        # Importing module (like tmp.py) has local import references
-        importing_module = type(self.sys)('ncompass.examples.basic_example.tmp')
-        importing_module.run_model_inference = old_module.run_model_inference  # from-import
-        importing_module.model = old_module  # direct import
-        self.sys.modules['ncompass.examples.basic_example.tmp'] = importing_module
+        # Now model should be imported and stored in sys.modules as 'model'
+        old_model_module = self.sys.modules.get('model')
+        self.assertIsNotNone(old_model_module, "Model should be imported and stored as 'model'")
+        
+        # Determine the fully qualified name
+        model_file = os.path.join(test_data_dir, 'model.py')
+        fully_qualified_name = 'tests.trace._data.model'
         
         # Store references in dict (accessible to gc.get_referrers)
-        self.test_refs['model'] = old_module
-        self.test_refs['run_model_inference'] = old_module.run_model_inference
+        self.test_refs['model'] = old_model_module
+        self.test_refs['Model'] = main_module.Model
+        self.test_refs['model_instance'] = main_module.model
         
         # Simulate clear_cached_modules (as done by enable_rewrites)
         targets = {fully_qualified_name: ModuleConfig()}
@@ -598,33 +597,32 @@ class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
         # and include it in old_modules using the fully qualified name as the key
         self.assertIn(fully_qualified_name, old_modules,
                      "old_modules should contain the module under fully qualified name")
-        self.assertIs(old_modules[fully_qualified_name], old_module,
+        self.assertIs(old_modules[fully_qualified_name], old_model_module,
                      "old_modules should reference the old module object")
         # The local name should be cleared from sys.modules
-        self.assertNotIn(local_name, self.sys.modules,
+        self.assertNotIn('model', self.sys.modules,
                         "Local name should be cleared from sys.modules")
         self.assertNotIn(fully_qualified_name, self.sys.modules,
                         "Fully qualified name should not be in sys.modules yet (will be re-imported)")
         
         # After enable_rewrites, module is re-imported with fully qualified name
-        new_module = type(self.sys)(fully_qualified_name)
-        new_module.run_model_inference = lambda: "reloaded_result"
-        self.sys.modules[fully_qualified_name] = new_module
+        # Simulate this by importing it properly
+        new_spec = importlib.util.spec_from_file_location(fully_qualified_name, model_file)
+        new_model_module = importlib.util.module_from_spec(new_spec)
+        new_spec.loader.exec_module(new_model_module)
+        self.sys.modules[fully_qualified_name] = new_model_module
         
-        # Update references - but old_modules is empty, so nothing happens
+        # Update references
         update_module_references(old_modules)
         
-        # Currently this will fail - local imports aren't handled
-        # The issue: old_modules is empty, so update_module_references does nothing.
-        # clear_cached_modules needs to find modules by checking alternative names (like the local name).
-        self.assertIs(self.test_refs['model'], new_module,
+        # Verify that references are updated
+        self.assertIs(self.test_refs['model'], new_model_module,
                      "Local import reference should be updated")
-        self.assertEqual(self.test_refs['run_model_inference'](), "reloaded_result",
-                        "Function from local import should be updated")
-        self.assertIs(importing_module.model, new_module,
-                     "Module reference in importing module should be updated")
-        self.assertEqual(importing_module.run_model_inference(), "reloaded_result",
-                        "Function reference in importing module should be updated")
+        self.assertIs(self.test_refs['Model'], new_model_module.Model,
+                     "Model class reference in dict should be updated")
+        # This is the critical assertion: does __main__ get updated?
+        self.assertIs(main_module.Model, new_model_module.Model,
+                     "Model class in __main__ namespace should be updated")
    
     def test_update_module_references_local_import_module_dict(self):
         """Test update_module_references updates local imports in module __dict__.
@@ -703,6 +701,184 @@ class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
                      "Local import reference should be updated")
         self.assertIs(ref3['model'], new_module,
                      "Another local import reference should be updated")
+
+
+class TestClearCachedModulesLocalImports(unittest.TestCase):
+    """Test cases for clear_cached_modules with local imports.
+    
+    Tests the fix for the scenario where a module is imported locally
+    and stored in sys.modules under the local name, but the config
+    specifies the fully qualified name.
+    """
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        import sys
+        self.sys = sys
+        self.original_modules = sys.modules.copy()
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Restore sys.modules
+        modules_to_remove = [
+            name for name in self.sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in self.sys.modules:
+                del self.sys.modules[name]
+    
+    def test_clear_cached_modules_finds_module_by_local_name(self):
+        """Test that clear_cached_modules finds modules stored under local name.
+        
+        This is the core fix: when a module is imported locally (e.g., 'import model'),
+        it's stored in sys.modules as 'model', not the fully qualified name.
+        clear_cached_modules should find it by checking the local name.
+        """
+        from ncompass.trace.core.utils import clear_cached_modules
+        from ncompass.trace.core.pydantic import ModuleConfig
+        
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        # Create a module and store it under the local name only
+        test_module = type(self.sys)(fully_qualified_name)
+        test_module.__file__ = '/path/to/model.py'
+        test_module.func = lambda: "test"
+        self.sys.modules[local_name] = test_module
+        
+        # Call clear_cached_modules with the fully qualified name
+        targets = {fully_qualified_name: ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Should find the module under the local name
+        self.assertIn(fully_qualified_name, old_modules,
+                     "old_modules should contain the module under fully qualified name key")
+        self.assertIs(old_modules[fully_qualified_name], test_module,
+                     "old_modules should reference the original module object")
+        
+        # Local name should be cleared from sys.modules
+        self.assertNotIn(local_name, self.sys.modules,
+                        "Local name should be cleared from sys.modules")
+        
+        # Fully qualified name should not be in sys.modules yet
+        self.assertNotIn(fully_qualified_name, self.sys.modules,
+                        "Fully qualified name should not be in sys.modules")
+    
+    def test_clear_cached_modules_prefers_fully_qualified_name(self):
+        """Test that clear_cached_modules prefers fully qualified name if both exist.
+        
+        If a module exists in sys.modules under both the fully qualified name
+        and the local name, the fully qualified one should take precedence.
+        """
+        from ncompass.trace.core.utils import clear_cached_modules
+        from ncompass.trace.core.pydantic import ModuleConfig
+        
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        # Create two different module objects
+        fq_module = type(self.sys)(fully_qualified_name)
+        fq_module.__file__ = '/path/to/model.py'
+        fq_module.version = "fully_qualified"
+        
+        local_module = type(self.sys)(local_name)
+        local_module.__file__ = '/path/to/model.py'
+        local_module.version = "local"
+        
+        # Store both in sys.modules
+        self.sys.modules[fully_qualified_name] = fq_module
+        self.sys.modules[local_name] = local_module
+        
+        # Call clear_cached_modules
+        targets = {fully_qualified_name: ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Should prefer the fully qualified name
+        self.assertIs(old_modules[fully_qualified_name], fq_module,
+                     "Should return the module from fully qualified name, not local")
+        
+        # Fully qualified should definitely be cleared
+        self.assertNotIn(fully_qualified_name, self.sys.modules,
+                        "Fully qualified name should be cleared")
+        # Local name may or may not be cleared (it's a different module object)
+        # The current implementation only clears the one it found
+    
+    def test_clear_cached_modules_preserves_file_path(self):
+        """Test that clear_cached_modules preserves __file__ attribute for later use.
+        
+        The __file__ attribute is critical for the fallback file path loading
+        in _reimport_modules when standard import fails.
+        """
+        from ncompass.trace.core.utils import clear_cached_modules
+        from ncompass.trace.core.pydantic import ModuleConfig
+        
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        file_path = '/home/user/code/model.py'
+        
+        # Create module with __file__ attribute
+        test_module = type(self.sys)(local_name)
+        test_module.__file__ = file_path
+        test_module.__name__ = local_name
+        self.sys.modules[local_name] = test_module
+        
+        # Clear cached modules
+        targets = {fully_qualified_name: ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Verify __file__ is preserved in old_modules
+        self.assertIn(fully_qualified_name, old_modules)
+        self.assertEqual(old_modules[fully_qualified_name].__file__, file_path,
+                        "__file__ attribute should be preserved")
+    
+    def test_clear_cached_modules_local_import_real_scenario(self):
+        """Test clear_cached_modules with actual test data files.
+        
+        This matches the real scenario from tmp.py where:
+        1. A file does 'from model import ...'
+        2. model is stored as 'model' in sys.modules
+        3. Config specifies 'ncompass.examples.basic_example.model'
+        4. clear_cached_modules should find and clear the module
+        """
+        import os
+        import importlib.util
+        from ncompass.trace.core.utils import clear_cached_modules
+        from ncompass.trace.core.pydantic import ModuleConfig
+        
+        # Add test data directory to path
+        test_data_dir = os.path.join(os.path.dirname(__file__), '_data')
+        if test_data_dir not in self.sys.path:
+            self.sys.path.insert(0, test_data_dir)
+        
+        # Import run.py as __main__ to simulate 'python run.py'
+        run_file = os.path.join(test_data_dir, 'run.py')
+        spec = importlib.util.spec_from_file_location('__main__', run_file)
+        main_module = importlib.util.module_from_spec(spec)
+        self.sys.modules['__main__'] = main_module
+        spec.loader.exec_module(main_module)
+        
+        # Verify model is imported under local name
+        self.assertIn('model', self.sys.modules, "Model should be in sys.modules as 'model'")
+        old_model = self.sys.modules['model']
+        old_file = old_model.__file__
+        
+        # Clear with fully qualified name
+        fully_qualified_name = 'tests.trace._data.model'
+        targets = {fully_qualified_name: ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # Should find the module
+        self.assertIn(fully_qualified_name, old_modules,
+                     "Should find module under local name and store with FQ name")
+        self.assertIs(old_modules[fully_qualified_name], old_model,
+                     "Should store reference to the old module object")
+        self.assertEqual(old_modules[fully_qualified_name].__file__, old_file,
+                        "Should preserve __file__ for later use")
+        
+        # Should clear from sys.modules
+        self.assertNotIn('model', self.sys.modules,
+                        "Local name should be cleared from sys.modules")
 
 
 if __name__ == '__main__':
