@@ -523,6 +523,188 @@ class TestSubmitQueueRequest(unittest.TestCase):
         mock_get_status.assert_not_called()
 
 
+class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
+    """Test cases for update_module_references with local imports.
+    
+    Tests the scenario where a module is imported locally (e.g., 'from model import ...')
+    before enable_rewrites is called, and the config uses the fully qualified name.
+    """
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        import sys
+        self.sys = sys
+        self.original_modules = sys.modules.copy()
+        # Store references for testing (accessible to gc.get_referrers)
+        self.test_refs = {}
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Clean up test modules
+        modules_to_remove = [
+            name for name in self.sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in self.sys.modules:
+                del self.sys.modules[name]
+        # Clean up references
+        for key in list(self.test_refs.keys()):
+            del self.test_refs[key]
+    
+    def test_update_module_references_local_import_before_rewrite(self):
+        """Test update_module_references when module was imported locally before enable_rewrites.
+        
+        Simulates tmp.py scenario:
+        - When running 'python examples/basic_example/tmp.py', line 5 does 'from model import run_model_inference'
+        - Python stores the module in sys.modules as 'model' (local name), NOT as 'ncompass.examples.basic_example.model'
+        - enable_rewrites is called with config containing 'ncompass.examples.basic_example.model'
+        - clear_cached_modules looks for 'ncompass.examples.basic_example.model' but doesn't find it (it's under 'model')
+        - So old_modules is empty {}, and update_module_references does nothing
+        - The references in tmp.py's namespace still point to the old module
+        
+        KEY ISSUE: When a module is imported locally, it's stored under the local name in sys.modules,
+        not the fully qualified name. clear_cached_modules needs to find modules by checking alternative names.
+        """
+        from ncompass.trace.core.utils import update_module_references, clear_cached_modules
+        from ncompass.trace.core.pydantic import ModuleConfig
+        
+        # Fully qualified name (as in config)
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        # Module imported locally BEFORE enable_rewrites
+        # CRITICAL: When you do 'from model import ...' locally, Python stores it as 'model', NOT the fully qualified name
+        old_module = type(self.sys)(fully_qualified_name)
+        old_module.run_model_inference = lambda: "original_result"
+        self.sys.modules[local_name] = old_module  # ONLY stored under local name
+        # self.sys.modules[fully_qualified_name] does NOT exist
+        
+        # Importing module (like tmp.py) has local import references
+        importing_module = type(self.sys)('ncompass.examples.basic_example.tmp')
+        importing_module.run_model_inference = old_module.run_model_inference  # from-import
+        importing_module.model = old_module  # direct import
+        self.sys.modules['ncompass.examples.basic_example.tmp'] = importing_module
+        
+        # Store references in dict (accessible to gc.get_referrers)
+        self.test_refs['model'] = old_module
+        self.test_refs['run_model_inference'] = old_module.run_model_inference
+        
+        # Simulate clear_cached_modules (as done by enable_rewrites)
+        targets = {fully_qualified_name: ModuleConfig()}
+        old_modules = clear_cached_modules(targets)
+        
+        # After fix: clear_cached_modules should find the module under the local name
+        # and include it in old_modules using the fully qualified name as the key
+        self.assertIn(fully_qualified_name, old_modules,
+                     "old_modules should contain the module under fully qualified name")
+        self.assertIs(old_modules[fully_qualified_name], old_module,
+                     "old_modules should reference the old module object")
+        # The local name should be cleared from sys.modules
+        self.assertNotIn(local_name, self.sys.modules,
+                        "Local name should be cleared from sys.modules")
+        self.assertNotIn(fully_qualified_name, self.sys.modules,
+                        "Fully qualified name should not be in sys.modules yet (will be re-imported)")
+        
+        # After enable_rewrites, module is re-imported with fully qualified name
+        new_module = type(self.sys)(fully_qualified_name)
+        new_module.run_model_inference = lambda: "reloaded_result"
+        self.sys.modules[fully_qualified_name] = new_module
+        
+        # Update references - but old_modules is empty, so nothing happens
+        update_module_references(old_modules)
+        
+        # Currently this will fail - local imports aren't handled
+        # The issue: old_modules is empty, so update_module_references does nothing.
+        # clear_cached_modules needs to find modules by checking alternative names (like the local name).
+        self.assertIs(self.test_refs['model'], new_module,
+                     "Local import reference should be updated")
+        self.assertEqual(self.test_refs['run_model_inference'](), "reloaded_result",
+                        "Function from local import should be updated")
+        self.assertIs(importing_module.model, new_module,
+                     "Module reference in importing module should be updated")
+        self.assertEqual(importing_module.run_model_inference(), "reloaded_result",
+                        "Function reference in importing module should be updated")
+   
+    def test_update_module_references_local_import_module_dict(self):
+        """Test update_module_references updates local imports in module __dict__.
+        
+        When a module does 'from model import func', the references are stored
+        in the module's __dict__. These should be updated.
+        """
+        from ncompass.trace.core.utils import update_module_references
+        
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        old_module = type(self.sys)(fully_qualified_name)
+        old_module.func = lambda: "original"
+        self.sys.modules[local_name] = old_module
+        self.sys.modules[fully_qualified_name] = old_module
+        
+        # Module with local import in __dict__ (like tmp.py)
+        importing_module = type(self.sys)('ncompass.examples.basic_example.tmp')
+        importing_module.__dict__['model'] = old_module  # 'import model'
+        importing_module.__dict__['func'] = old_module.func  # 'from model import func'
+        self.sys.modules['ncompass.examples.basic_example.tmp'] = importing_module
+        
+        new_module = type(self.sys)(fully_qualified_name)
+        new_module.func = lambda: "reloaded"
+        self.sys.modules[fully_qualified_name] = new_module
+        
+        old_modules = {fully_qualified_name: old_module}
+        update_module_references(old_modules)
+        
+        # Currently this will fail - local imports in __dict__ aren't handled
+        self.assertIs(importing_module.__dict__['model'], new_module,
+                     "Local import in module __dict__ should be updated")
+        self.assertEqual(importing_module.__dict__['func'](), "reloaded",
+                        "From-import in module __dict__ should be updated")
+    
+    def test_update_module_references_local_import_multiple_referrers(self):
+        """Test update_module_references handles multiple referrers with local imports.
+        
+        When a module is imported locally, there may be multiple referrers:
+        - Some using the fully qualified name
+        - Some using the local name
+        All should be updated.
+        """
+        from ncompass.trace.core.utils import update_module_references
+        
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        old_module = type(self.sys)(fully_qualified_name)
+        old_module.func = lambda: "original"
+        self.sys.modules[local_name] = old_module
+        self.sys.modules[fully_qualified_name] = old_module
+        
+        # Multiple referrers
+        ref1 = {}  # Using fully qualified name
+        ref1['ncompass.examples.basic_example.model'] = old_module
+        
+        ref2 = {}  # Using local name
+        ref2['model'] = old_module
+        
+        ref3 = {}  # Another using local name
+        ref3['model'] = old_module
+        
+        new_module = type(self.sys)(fully_qualified_name)
+        new_module.func = lambda: "reloaded"
+        self.sys.modules[fully_qualified_name] = new_module
+        
+        old_modules = {fully_qualified_name: old_module}
+        update_module_references(old_modules)
+        
+        # Currently this will fail - only fully qualified references are updated
+        self.assertIs(ref1['ncompass.examples.basic_example.model'], new_module,
+                     "Fully qualified reference should be updated")
+        self.assertIs(ref2['model'], new_module,
+                     "Local import reference should be updated")
+        self.assertIs(ref3['model'], new_module,
+                     "Another local import reference should be updated")
+
+
 if __name__ == '__main__':
     unittest.main()
 

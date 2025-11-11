@@ -71,6 +71,7 @@ class ModuleConfig(BaseModel):
         default_factory=list,
         description="List of line ranges to wrap with context managers"
     )
+    file_path: Optional[str] = Field(None, description="File path of the module")
 
 
 class RewriteConfig(BaseModel):
