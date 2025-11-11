@@ -14,7 +14,7 @@ echo ""
 # Install dependencies
 echo "📦 INSTALL DEPENDENCIES (from project root):"
 echo "  pip install -e \".[dev]\""
-echo "  # or: pip install -r nc_reqs.txt"
+echo "  # or: pip install -r requirements.txt"
 echo ""
 
 # Unit test coverage
