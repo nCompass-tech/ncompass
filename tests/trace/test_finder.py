@@ -493,6 +493,163 @@ class TestRewritingFinder(unittest.TestCase):
         self.assertIn('manual.module', finder.merged_configs)
         self.assertTrue(finder.ai_analysis_done)
 
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    @patch('ncompass.trace.core.finder.create_replacer_from_config')
+    @patch('ncompass.trace.core.finder.RewritingLoader')
+    @patch('importlib.util.find_spec')
+    def test_find_spec_matches_by_file_path(self, mock_importlib_find_spec, mock_loader_class, mock_create_replacer):
+        """Test find_spec matches imports by file path when fullname doesn't match.
+        
+        This handles cases where:
+        - Config has 'ncompass.trace.core.finder' as target
+        - Import is done as 'finder' from same directory
+        - Both resolve to the same file path
+        """
+        # Config has fully qualified name
+        config = {
+            'targets': {
+                'ncompass.trace.core.finder': {
+                    'file_path': '/home/user/ncompass/ncompass/trace/core/finder.py',
+                    'func_line_range_wrappings': [{
+                        'function': 'find_spec',
+                        'start_line': 129,
+                        'end_line': 165,
+                        'context_class': 'ncompass.profiling.ProfileContext',
+                        'context_values': [{'name': 'name', 'value': 'finder_test', 'type': 'literal'}]
+                    }]
+                }
+            }
+        }
+        finder = RewritingFinder(config=config)
+        
+        # Mock the replacer and loader
+        mock_replacer = MagicMock()
+        mock_create_replacer.return_value = mock_replacer
+        mock_loader = MagicMock()
+        mock_loader_class.return_value = mock_loader
+        
+        # The spec for the short-name import ('finder')
+        # This is what another finder would return when asked about 'finder'
+        mock_spec_short = MagicMock()
+        mock_spec_short.origin = '/home/user/ncompass/ncompass/trace/core/finder.py'
+        mock_spec_short.has_location = True
+        
+        # The spec for the fully qualified name (for path matching)
+        # This is what importlib.util.find_spec returns when checking the target
+        mock_spec_full = MagicMock()
+        mock_spec_full.origin = '/home/user/ncompass/ncompass/trace/core/finder.py'
+        mock_spec_full.has_location = True
+        
+        # Setup: importlib.util.find_spec returns the full spec for the target
+        mock_importlib_find_spec.return_value = mock_spec_full
+        
+        # Mock finder that returns spec for 'finder' (short name)
+        mock_other_finder = MagicMock()
+        mock_other_finder.find_spec.return_value = mock_spec_short
+        
+        # Set up meta_path
+        sys.meta_path = [finder, mock_other_finder]
+        
+        with patch('importlib.util.spec_from_loader') as mock_spec_from_loader:
+            mock_result_spec = MagicMock()
+            mock_spec_from_loader.return_value = mock_result_spec
+            
+            # Import using short name 'finder' instead of full 'ncompass.trace.core.finder'
+            result = finder.find_spec('finder', None, None)
+            
+            # Should still find and rewrite because file paths match
+            self.assertIsNotNone(result, "Should match by file path even when fullname differs")
+            
+            # Verify it used the config from the fully qualified target name
+            mock_create_replacer.assert_called_once()
+            call_args = mock_create_replacer.call_args
+            self.assertEqual(call_args[0][0], 'ncompass.trace.core.finder', 
+                            "Should use the full target name from config")
+            self.assertEqual(call_args[0][1], config['targets']['ncompass.trace.core.finder'])
+            
+            # Verify loader was created with correct parameters
+            mock_loader_class.assert_called_once_with(
+                'ncompass.trace.core.finder',  # Should use the matched target name
+                '/home/user/ncompass/ncompass/trace/core/finder.py',
+                mock_replacer
+            )
+            
+            # Verify spec was created correctly
+            mock_spec_from_loader.assert_called_once_with(
+                'finder',  # Original import name
+                mock_loader,
+                origin='/home/user/ncompass/ncompass/trace/core/finder.py'
+            )
+            
+            self.assertEqual(result, mock_result_spec)
+
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    def test_find_spec_no_match_by_file_path(self):
+        """Test find_spec returns None when file paths don't match any target."""
+        config = {
+            'targets': {
+                'ncompass.trace.core.finder': {
+                    'func_line_range_wrappings': []
+                }
+            }
+        }
+        finder = RewritingFinder(config=config)
+        
+        # Mock spec for a completely different module
+        mock_spec_different = MagicMock()
+        mock_spec_different.origin = '/home/user/other/module/path.py'
+        mock_spec_different.has_location = True
+        
+        mock_other_finder = MagicMock()
+        mock_other_finder.find_spec.return_value = mock_spec_different
+        
+        sys.meta_path = [finder, mock_other_finder]
+        
+        with patch('importlib.util.find_spec') as mock_importlib_find_spec:
+            # When checking target 'ncompass.trace.core.finder', return different path
+            mock_target_spec = MagicMock()
+            mock_target_spec.origin = '/home/user/ncompass/ncompass/trace/core/finder.py'
+            mock_importlib_find_spec.return_value = mock_target_spec
+            
+            # Try to import 'different_module' which resolves to a different file
+            result = finder.find_spec('different_module', None, None)
+            
+            # Should return None because paths don't match
+            self.assertIsNone(result, "Should not match when file paths differ")
+
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    @patch('importlib.util.find_spec')
+    def test_find_spec_handles_target_spec_exceptions(self, mock_importlib_find_spec):
+        """Test find_spec handles exceptions when resolving target specs for path matching."""
+        config = {
+            'targets': {
+                'ncompass.trace.core.finder': {
+                    'func_line_range_wrappings': []
+                },
+                'other.module': {
+                    'func_line_range_wrappings': []
+                }
+            }
+        }
+        finder = RewritingFinder(config=config)
+        
+        # Mock spec for the import
+        mock_spec = MagicMock()
+        mock_spec.origin = '/home/user/path/to/file.py'
+        mock_spec.has_location = True
+        
+        mock_other_finder = MagicMock()
+        mock_other_finder.find_spec.return_value = mock_spec
+        
+        sys.meta_path = [finder, mock_other_finder]
+        
+        # Simulate exception when trying to resolve target specs
+        mock_importlib_find_spec.side_effect = ImportError("Module not found")
+        
+        # Should not crash, just return None
+        result = finder.find_spec('some_module', None, None)
+        
+        self.assertIsNone(result, "Should handle exceptions gracefully and return None")
 
 if __name__ == '__main__':
     unittest.main()

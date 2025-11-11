@@ -181,7 +181,6 @@ def submit_queue_request(
 
 def clear_cached_modules(targets: Dict[str, ModuleConfig]) -> Dict[str, Any]:
     """Clear cached modules and return old module references for updating.
-    
     Returns:
         Dictionary mapping module names to their old module objects
     """
@@ -189,11 +188,37 @@ def clear_cached_modules(targets: Dict[str, ModuleConfig]) -> Dict[str, Any]:
     target_modules = list(targets.keys())
     if target_modules:
         for module_name in target_modules:
+            old_module = None
+            module_names_to_clear = []
+            
+            # First, try to find the module under the fully qualified name
             if module_name in sys.modules:
+                old_module = sys.modules[module_name]
+                module_names_to_clear.append(module_name)
                 logger.debug(f"Clearing cached module: {module_name}")
-                # Store reference to old module before deleting
-                old_modules[module_name] = sys.modules[module_name]
-                del sys.modules[module_name]
+            else:
+                # Module not found under fully qualified name - might be imported locally
+                # Check if it exists under the local name (last component of fully qualified name)
+                local_name = module_name.split('.')[-1]
+                if local_name in sys.modules:
+                    candidate_module = sys.modules[local_name]
+                    # For local imports, the module is stored under the local name
+                    # We accept it as a match if it's a module object
+                    if hasattr(candidate_module, '__name__') or hasattr(candidate_module, '__file__'):
+                        old_module = candidate_module
+                        module_names_to_clear.append(local_name)
+                        logger.debug(f"Found module under local name '{local_name}', clearing it")
+            
+            if old_module is not None:
+                # Store reference to old module using the fully qualified name as the key
+                # This ensures update_module_references can find it
+                old_modules[module_name] = old_module
+                
+                # Clear all entries pointing to this module
+                for name in module_names_to_clear:
+                    if name in sys.modules:
+                        del sys.modules[name]
+                
                 # Also clear any submodules that might be cached
                 modules_to_remove = [
                     name for name in list(sys.modules.keys())
@@ -202,6 +227,9 @@ def clear_cached_modules(targets: Dict[str, ModuleConfig]) -> Dict[str, Any]:
                 for name in modules_to_remove:
                     if name in sys.modules:
                         del sys.modules[name]
+            else:
+                logger.debug(f"Module {module_name} not found in sys.modules (may not be imported yet)")
+    
     return old_modules
 
 def _should_skip_referrer(ref: Any, old_modules: Dict[str, Any], this_module: Any = None) -> bool:

@@ -340,5 +340,109 @@ class TestModuleReloadingIntegration(unittest.TestCase):
         self.assertEqual(self.test_refs['func'](), "reloaded")
 
 
+class TestLocalImports(unittest.TestCase):
+    """Test cases for local imports (e.g., from model import ... instead of from package.model import ...).
+    
+    This tests the scenario where:
+    - A module is imported locally BEFORE enable_rewrites is called
+    - The config uses the fully qualified module name (e.g., 'ncompass.examples.basic_example.model')
+    - The local import reference (e.g., 'model' in the importing module's namespace) should be updated
+    """
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.original_meta_path = sys.meta_path.copy()
+        self.original_modules = sys.modules.copy()
+        # Remove any existing RewritingFinder
+        sys.meta_path = [f for f in sys.meta_path if not isinstance(f, RewritingFinder)]
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        sys.meta_path[:] = self.original_meta_path
+        # Clean up test modules
+        modules_to_remove = [
+            name for name in sys.modules.keys()
+            if name not in self.original_modules
+        ]
+        for name in modules_to_remove:
+            if name in sys.modules:
+                del sys.modules[name]
+    
+    @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
+    @patch('importlib.import_module')
+    def test_reimport_modules_local_import_before_enable_rewrites(self, mock_import_module):
+        """Test _reimport_modules when module was imported locally before enable_rewrites.
+        
+        This is the full integration test matching the tmp.py scenario:
+        1. Module imported locally BEFORE enable_rewrites (like tmp.py line 5: 'from model import ...')
+        2. Python stores it in sys.modules as 'model', NOT 'ncompass.examples.basic_example.model'
+        3. enable_rewrites called with fully qualified name in config
+        4. clear_cached_modules doesn't find the module (it's under 'model', not fully qualified name)
+        5. old_modules is empty, so update_module_references does nothing
+        6. Local import references are NOT updated - THIS IS THE BUG
+        
+        KEY ISSUE: When a module is imported locally, it's stored under the local name in sys.modules.
+        clear_cached_modules needs to find modules by checking alternative names (like the local name).
+        """
+        fully_qualified_name = 'ncompass.examples.basic_example.model'
+        local_name = 'model'
+        
+        # Step 1: Module imported locally BEFORE enable_rewrites (like tmp.py line 5)
+        # When you do 'from model import ...', Python stores it as 'model', NOT the fully qualified name
+        old_module = type(sys)(fully_qualified_name)
+        old_module.run_model_inference = lambda: "original"
+        sys.modules[local_name] = old_module  # ONLY stored under local name
+        # sys.modules[fully_qualified_name] does NOT exist
+        
+        # Step 2: Importing module has local import reference (like tmp.py)
+        importing_module = type(sys)('ncompass.examples.basic_example.tmp')
+        importing_module.run_model_inference = old_module.run_model_inference
+        importing_module.model = old_module
+        sys.modules['ncompass.examples.basic_example.tmp'] = importing_module
+        
+        # Store reference for testing
+        self.tmp_refs = {}
+        self.tmp_refs['run_model_inference'] = old_module.run_model_inference
+        self.tmp_refs['model'] = old_module
+        
+        # Step 3: enable_rewrites is called (like tmp.py line 13)
+        # clear_cached_modules looks for 'ncompass.examples.basic_example.model' but doesn't find it
+        # So old_modules is empty {}
+        
+        # Mock re-import to return new module
+        new_module = type(sys)(fully_qualified_name)
+        new_module.run_model_inference = lambda: "reloaded"
+        
+        def mock_import_side_effect(module_name):
+            if module_name == fully_qualified_name:
+                sys.modules[fully_qualified_name] = new_module
+                return new_module
+            return sys.modules.get(module_name)
+        
+        mock_import_module.side_effect = mock_import_side_effect
+        
+        # Enable rewrites with fully qualified name (as in config)
+        config = RewriteConfig(
+            targets={
+                fully_qualified_name: ModuleConfig()
+            }
+        )
+        enable_rewrites(config)
+        
+        # Step 4: Local import references are NOT updated because old_modules was empty
+        # This test should FAIL with current implementation
+        # The problem: clear_cached_modules doesn't find the module because it's stored under 'model',
+        # not 'ncompass.examples.basic_example.model'. So old_modules is empty, and update_module_references
+        # has nothing to work with.
+        self.assertIs(self.tmp_refs['model'], new_module,
+                     "Local import reference should be updated after enable_rewrites")
+        self.assertEqual(self.tmp_refs['run_model_inference'](), "reloaded",
+                        "Function from local import should be updated")
+        self.assertIs(importing_module.model, new_module,
+                     "Module reference in tmp module should be updated")
+        self.assertEqual(importing_module.run_model_inference(), "reloaded",
+                        "Function reference in tmp module should be updated")
+
+
 if __name__ == '__main__':
     unittest.main()
