@@ -6,9 +6,8 @@ This directory contains example scripts demonstrating how to use the nCompass SD
 
 The best way to use our tool is via our [VSCode extension](https://docs.ncompass.tech/ncprof/quick-start). However if you wish to use it fully programmatically, this directory contains a repository of examples.
 
-### Basic Examples
 - **[basic_example](basic_example/main.py)** - Basic example to get familiar with the concepts
-- **[profiling_session](profiling_session/main.py)** - Complete ProfilingSession workflow
+<!-- - **[profiling_session](profiling_session/main.py)** - Complete ProfilingSession workflow -->
 
 ## Running Examples
 
