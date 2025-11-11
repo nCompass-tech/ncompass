@@ -10,12 +10,6 @@ Install the nCompass SDK using pip:
 pip install ncompass
 ```
 
-For development with PyTorch support:
-
-```bash
-pip install ncompass[torch]
-```
-
 ## Quick Start
 
 Here's a simple example to get you started with profiling:
