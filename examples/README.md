@@ -25,7 +25,7 @@ python examples/basic_example/main.py
 
 ### If running from this repo
 ```bash
-nix develop
+python install -r requirements.txt
 python examples/basic_example/main.py
 ```
 
