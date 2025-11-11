@@ -59,7 +59,7 @@ def _reimport_modules(targets: Dict[str, ModuleConfig], old_modules: Dict[str, A
             
             # Fall back to config file path if available
             if not file_path or not os.path.exists(file_path):
-                config_file_path = module_config.file_path if hasattr(module_config, 'file_path') else None
+                config_file_path = module_config.filePath if hasattr(module_config, 'filePath') else None
                 if config_file_path and os.path.exists(config_file_path):
                     file_path = config_file_path
                     logger.debug(f"Using file path from config: {file_path}")

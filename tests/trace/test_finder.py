@@ -509,7 +509,7 @@ class TestRewritingFinder(unittest.TestCase):
         config = {
             'targets': {
                 'ncompass.trace.core.finder': {
-                    'file_path': '/home/user/ncompass/ncompass/trace/core/finder.py',
+                    'filePath': '/home/user/ncompass/ncompass/trace/core/finder.py',
                     'func_line_range_wrappings': [{
                         'function': 'find_spec',
                         'start_line': 129,
