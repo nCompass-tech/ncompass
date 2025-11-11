@@ -19,6 +19,7 @@ Description: Finders for AST rewriting.
 import importlib.abc
 import importlib.util
 import importlib.machinery
+from importlib.machinery import PathFinder
 import traceback
 import os
 from types import ModuleType
@@ -71,6 +72,35 @@ class RewritingFinder(_RewritingFinderBase):
             logger.debug(f"Final merged configs for {len(self.merged_configs)} files")
         else:
             self.merged_configs = deepcopy(self.manual_configs)
+        
+        # Build a mapping from file paths to fullnames for local import resolution
+        self.filepath_to_fullname: Dict[str, str] = self._build_filepath_mapping()
+    
+    def _build_filepath_mapping(self) -> Dict[str, str]:
+        """Build a mapping from file paths to fullnames for all target modules."""
+        filepath_to_fullname = {}
+        for fullname in self.target_fullnames:
+            # First, check if config has a file_path field
+            config_file_path = self.merged_configs.get(fullname, {}).get('file_path')
+            
+            if config_file_path:
+                # Use the file path from config if available
+                normalized_path = os.path.normpath(os.path.abspath(config_file_path))
+                filepath_to_fullname[normalized_path] = fullname
+                logger.debug(f"Mapped file path from config {normalized_path} -> {fullname}")
+            
+            # Also try to find the actual spec and add that mapping
+            try:
+                spec = PathFinder.find_spec(fullname)
+                if spec and spec.origin and spec.has_location:
+                    # Normalize the path to handle different representations
+                    normalized_path = os.path.normpath(os.path.abspath(spec.origin))
+                    filepath_to_fullname[normalized_path] = fullname
+                    logger.debug(f"Mapped file path from spec {normalized_path} -> {fullname}")
+            except (ImportError, ModuleNotFoundError, ValueError, AttributeError) as e:
+                logger.debug(f"Could not map file path for {fullname}: {e}")
+            
+        return filepath_to_fullname
     
     def _run_ai_analysis_if_needed(self) -> Dict[str, Any]:
         """Run AI profiling analysis once for all target files if enabled.
@@ -98,7 +128,7 @@ class RewritingFinder(_RewritingFinderBase):
             file_paths = {}
             for fullname in analysis_targets:
                 try:
-                    spec = importlib.util.find_spec(fullname)
+                    spec = PathFinder.find_spec(fullname)
                     if spec and spec.origin and spec.has_location:
                         file_paths[fullname] = spec.origin
                         logger.debug(f"[AI Profiler] Found: {fullname} -> {spec.origin}")
@@ -126,40 +156,73 @@ class RewritingFinder(_RewritingFinderBase):
             traceback.print_exc()
             return {}
 
-    def find_spec(
+    def _find_spec_from_other_finders(
         self,
         fullname: str,
         path: Optional[Sequence[str]],
-        target: Optional[ModuleType] = None
+        target: Optional[ModuleType]
     ) -> Optional[importlib.machinery.ModuleSpec]:
-        if fullname not in self.target_fullnames:
-            return None
-
+        """Find spec using other finders in sys.meta_path."""
         for finder in sys.meta_path:
             if isinstance(finder, RewritingFinder):
                 continue
             if hasattr(finder, "find_spec"):
                 spec = finder.find_spec(fullname, path, target)
                 if spec is not None:
-                    break
-        else:
+                    return spec
+        return None
+    
+    def _match_fullname_by_filepath(self, spec: importlib.machinery.ModuleSpec) -> Optional[str]:
+        """Match a spec's file path to a target fullname."""
+        if not spec or not spec.origin or not spec.has_location:
             return None
         
-        if (not spec) or (not spec.origin) or (not spec.has_location):
-            return None
-        
-        # Get merged config if available
-        merged_config = self.merged_configs.get(fullname)
-        
-        # Determine which config to use
+        normalized_origin = os.path.normpath(os.path.abspath(spec.origin))
+        return self.filepath_to_fullname.get(normalized_origin)
+    
+    def _create_rewriting_spec(
+        self,
+        fullname: str,
+        matched_fullname: str,
+        spec: importlib.machinery.ModuleSpec
+    ) -> Optional[importlib.machinery.ModuleSpec]:
+        """Create a rewriting spec with the appropriate loader and replacer."""
+        merged_config = self.merged_configs.get(matched_fullname)
         if not merged_config:
             return None
-
-        # Create dynamic replacer from config
-        replacer = create_replacer_from_config(fullname, merged_config)
         
+        replacer = create_replacer_from_config(matched_fullname, merged_config)
         return importlib.util.spec_from_loader(
             fullname,
-            RewritingLoader(fullname, spec.origin, replacer),
+            RewritingLoader(matched_fullname, spec.origin, replacer),
             origin=spec.origin
         )
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: Optional[Sequence[str]],
+        target: Optional[ModuleType] = None
+    ) -> Optional[importlib.machinery.ModuleSpec]:
+        # Determine the matched fullname (either direct match or by file path)
+        matched_fullname = None
+        spec = None
+        if fullname in self.target_fullnames:
+            matched_fullname = fullname
+        else:
+            # Try to match by file path for local imports
+            spec = self._find_spec_from_other_finders(fullname, path, target)
+            if spec:
+                matched_fullname = self._match_fullname_by_filepath(spec)
+        
+        if not matched_fullname:
+            return None
+        
+        # Get the spec if we don't have it yet
+        if matched_fullname == fullname:
+            spec = self._find_spec_from_other_finders(fullname, path, target)
+        
+        if (spec is None) or (not spec.origin) or (not spec.has_location):
+            return None
+        else:
+            return self._create_rewriting_spec(fullname, matched_fullname, spec)
