@@ -289,24 +289,6 @@ log_success "Upload complete"
 echo ""
 
 # ==============================================================================
-# Tag
-# ==============================================================================
-
-log_info "Creating git tag v${PACKAGE_VERSION}..."
-if git rev-parse "v${PACKAGE_VERSION}" >/dev/null 2>&1; then
-    log_warning "Tag v${PACKAGE_VERSION} exists. Skipping."
-else
-    git tag -a "v${PACKAGE_VERSION}" -m "Release version ${PACKAGE_VERSION}"
-    log_success "Created tag v${PACKAGE_VERSION}"
-    read -p "Push tag to remote? (y/N) " -n 1 -r; echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git push origin "v${PACKAGE_VERSION}"
-        log_success "Tag pushed"
-    fi
-fi
-echo ""
-
-# ==============================================================================
 # Summary
 # ==============================================================================
 
