@@ -12,8 +12,8 @@ The best way to use our tool is via our [VSCode extension](https://docs.ncompass
 ## Running Examples
 
 ### Prerequisites
-* Ensure that you have a ncprof server running locally(not needed for `basic_example`)
-* Ensure you create a .env file following the format of .example.env
+* Ensure that you have a ncprof server running locally - __not needed for `basic_example`__
+* Ensure you create a .env file following the format of .example.env - __IMPORTANT__
 
 Each example is self-contained and can be run directly:
 
