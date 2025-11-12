@@ -97,6 +97,7 @@ def prepare_input_data(batch_size=32, input_size=512, device=None):
     """Prepare input data for the model."""
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Device not specified, using default: {device}")
     logger.info(f"Preparing input data: batch_size={batch_size}, input_size={input_size}, device={device}")
     return torch.randn(batch_size, input_size, device=device)
 
