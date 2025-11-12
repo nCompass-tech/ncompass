@@ -13,7 +13,7 @@ from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
 import logging
 import os
-from config import TORCH_LOGS_DIR, PROFILING_SESSION_DIR
+from config import config
 from model import run_model_inference
 
 logger.setLevel(logging.DEBUG)
@@ -53,9 +53,9 @@ if __name__ == "__main__":
     
     if args.clean:
         import shutil
-        if os.path.exists(TORCH_LOGS_DIR):
-            shutil.rmtree(TORCH_LOGS_DIR)
-        if os.path.exists(PROFILING_SESSION_DIR):
-            shutil.rmtree(PROFILING_SESSION_DIR)
+        if os.path.exists(config.torch_logs_dir):
+            shutil.rmtree(config.torch_logs_dir)
+        if os.path.exists(config.profiling_session_dir):
+            shutil.rmtree(config.profiling_session_dir)
         logger.info("Cleaned up all traces and summaries")
     main()
