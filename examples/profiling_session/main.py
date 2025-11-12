@@ -4,7 +4,7 @@ ProfilingSession Iterative Workflow Example
 This example demonstrates a complete iterative profiling workflow:
 1. Initial profiling with minimal instrumentation
 2. AI-powered trace analysis
-3. User feedback for targeted profiling
+3. Submit feedback for targeted profiling
 4. Applying targeted markers
 5. Re-running profiling with detailed markers
 6. Feedback-driven trace analysis
@@ -73,12 +73,12 @@ def main():
     
     logger.info(f"Summary automatically saved to {config.profiling_session_dir} directory")
     
-    # Step 3: Submit user feedback for targeted profiling
+    # Step 3: Submit feedback for targeted profiling
     logger.info("="*80)
     logger.info("STEP 3: Submit feedback for targeted profiling")
     logger.info("="*80)
     
-    # Example: User wants to understand why matrix multiplication is slow
+    # Example: You want to understand why matrix multiplication is slow
     # We'll target the matrix_multiply function
     # Note: In practice, use the actual module path (e.g., 'myproject.models.neural_network')
     # For this example, we use __name__ which will be '__main__' when run directly
@@ -113,7 +113,7 @@ def main():
     )
     
     # Get new summary with feedback context
-    # This will generate a summary that directly addresses the user's question
+    # This will generate a summary that directly addresses your question
     # Summary will be saved as: summary_pytorch_model_detailed_YYYY_MM_DD_HH_MM_SS.json/.md
     new_summary = session.get_trace_summary(
         trace_path=filtered_trace_file,  # Use filtered trace instead of raw trace
@@ -128,7 +128,7 @@ def main():
     except Exception as e:
         logger.error(f"Error saving summary: {e}")
     
-    logger.info("Note: This summary directly addresses the user's question with trace data")
+    logger.info("Note: This summary directly addresses your question with trace data")
     
     # Save configuration for reproducibility
     # Config will be saved as: profile_config_pytorch_model_detailed_YYYY_MM_DD_HH_MM_SS.json
