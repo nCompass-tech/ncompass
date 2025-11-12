@@ -20,45 +20,16 @@
       venv_pip_pkgs = ''
           set -e
           
-          handle_reqs() {
-            mkdir -p reqs
-            pip freeze > nc_reqs.txt.tmp
-
-            if [ -f "nc_reqs.txt" ]; then
-              # Only backup if contents are different
-              if ! cmp -s "nc_reqs.txt" "nc_reqs.txt.tmp"; then
-                timestamp=$(date '+%Y-%m-%d_%H-%M')
-                cp nc_reqs.txt "reqs/nc_reqs.txt.$timestamp"
-                echo "Backed up existing nc_reqs.txt to reqs/nc_reqs.txt.$timestamp"
-                mv nc_reqs.txt.tmp nc_reqs.txt
-                echo "Updated nc_reqs.txt"
-              else
-                echo "No changes detected in nc_reqs.txt"
-                rm nc_reqs.txt.tmp
-              fi
-            else
-              mv nc_reqs.txt.tmp nc_reqs.txt
-              echo "Created initial nc_reqs.txt"
-            fi
-          }
-
           python3 -m venv ${venv_name}
           source ${venv_name}/bin/activate
           pip install uv
           
-          if [ -f "nc_reqs.txt" ]; then
-            uv pip install -r nc_reqs.txt
-          elif [ -f "requirements.txt" ]; then
+          if [ -f "requirements.txt" ]; then
             uv pip install -r requirements.txt
-            handle_reqs
           else
-            echo "No requirements file found (checked nc_reqs.txt and requirements.txt)"
+            echo "No requirements.txt file found"
           fi
           set +e
-
-          venv-req() {
-            handle_reqs
-          }
           '';
 
       free_pkgs_linux = import nixpkgs {

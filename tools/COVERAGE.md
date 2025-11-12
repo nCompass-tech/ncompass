@@ -11,7 +11,7 @@ This project uses comprehensive coverage tooling to maintain code quality. All c
 pip install -e ".[dev]"
 
 # Or use pinned versions
-pip install -r nc_reqs.txt
+pip install -r requirements.txt
 
 # Run coverage checks from tools/ directory
 cd tools
