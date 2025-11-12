@@ -20,7 +20,7 @@ from ncompass.trace import ProfilingSession
 from ncompass.trace.infra.utils import logger
 import logging
 import os
-from config import TORCH_LOGS_DIR, PROFILING_SESSION_DIR
+from config import config
 
 logger.setLevel(logging.DEBUG)
 
@@ -33,8 +33,8 @@ def main():
     # Initialize profiling session with a descriptive name
     # This will be used to name traces, summaries, and configs
     session = ProfilingSession(
-        trace_output_dir=TORCH_LOGS_DIR,
-        cache_dir=PROFILING_SESSION_DIR,
+        trace_output_dir=config.torch_logs_dir,
+        cache_dir=config.profiling_session_dir,
         session_name="pytorch_model"  # Base name for all generated files
     )
     
@@ -64,14 +64,14 @@ def main():
     )
     print(f"Initial summary generated (length = {len(summary['markdown'])})")
     try:
-        summary_path = f"{PROFILING_SESSION_DIR}/summary_pytorch_model_initial.md"
+        summary_path = f"{config.profiling_session_dir}/summary_pytorch_model_initial.md"
         with open(summary_path, "w") as f:
             f.write(summary['markdown'])
         logger.info(f"Summary saved to: {summary_path}")
     except Exception as e:
         logger.error(f"Error saving summary: {e}")
     
-    logger.info(f"Summary automatically saved to {PROFILING_SESSION_DIR} directory")
+    logger.info(f"Summary automatically saved to {config.profiling_session_dir} directory")
     
     # Step 3: Submit user feedback for targeted profiling
     logger.info("="*80)
@@ -121,7 +121,7 @@ def main():
     )
     print(f"Feedback-driven summary generated (length = {len(new_summary['markdown'])})")
     try:
-        summary_path = f"{PROFILING_SESSION_DIR}/summary_pytorch_model_detailed.md"
+        summary_path = f"{config.profiling_session_dir}/summary_pytorch_model_detailed.md"
         with open(summary_path, "w") as f:
             f.write(new_summary['markdown'])
         logger.info(f"Summary saved to: {summary_path}")
@@ -174,9 +174,9 @@ if __name__ == "__main__":
     
     if args.clean:
         import shutil
-        if os.path.exists(TORCH_LOGS_DIR):
-            shutil.rmtree(TORCH_LOGS_DIR)
-        if os.path.exists(PROFILING_SESSION_DIR):
-            shutil.rmtree(PROFILING_SESSION_DIR)
+        if os.path.exists(config.torch_logs_dir):
+            shutil.rmtree(config.torch_logs_dir)
+        if os.path.exists(config.profiling_session_dir):
+            shutil.rmtree(config.profiling_session_dir)
         logger.info("Cleaned up all traces and summaries")
     main()

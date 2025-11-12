@@ -21,7 +21,7 @@ import logging
 import os
 import torch
 from datetime import datetime
-from config import TORCH_LOGS_DIR
+from config import config
 
 logger.setLevel(logging.DEBUG)
 
@@ -131,7 +131,7 @@ def run_model_inference(enable_profiler: bool = False):
             outputs = model.forward(inputs)
         
         # Export trace
-        trace_path = os.path.join(TORCH_LOGS_DIR, f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        trace_path = os.path.join(config.torch_logs_dir, f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
         prof.export_chrome_trace(trace_path)
         logger.info(f"Trace exported to: {trace_path}")
     else:
