@@ -15,15 +15,20 @@
 """Description: Utils for the core module."""
 
 import importlib.util
-from typing import Optional, Union, Any
+from importlib.machinery import ModuleSpec
+from typing import Optional, Union, Any, TYPE_CHECKING
 from copy import deepcopy
 import requests
 import time
 import sys
 import gc
+import os
 from typing import Dict
 from ncompass.trace.core.pydantic import ModuleConfig
 from ncompass.trace.infra.utils import logger
+
+if TYPE_CHECKING:
+    from ncompass.trace.core.finder import RewritingFinder
 
 
 def extract_source_code(target_module: str) -> Optional[str]:
@@ -374,3 +379,157 @@ def update_module_references(old_modules: Dict[str, Any]) -> None:
         
         # 2) Fix from-imported symbols (e.g., `from model import func`)
         _update_attribute_references(old_name, old_mod, new_mod, old_modules, this_module)
+
+
+def _find_rewriting_finder() -> Optional['RewritingFinder']:  # type: ignore
+    """Find the RewritingFinder from sys.meta_path.
+    
+    Returns:
+        The RewritingFinder instance if found, None otherwise
+    """
+    from ncompass.trace.core.finder import RewritingFinder
+    
+    for finder in sys.meta_path:
+        if isinstance(finder, RewritingFinder):
+            return finder
+    return None
+
+
+def _resolve_module_file_path(
+    module_name: str,
+    module_config: ModuleConfig,
+    old_modules: Dict[str, Any]
+) -> Optional[str]:
+    """Resolve the file path for a module.
+    
+    Args:
+        module_name: Name of the module
+        module_config: Configuration for the module
+        old_modules: Dictionary of old module objects
+    
+    Returns:
+        File path if found and exists, None otherwise
+    """
+    file_path = None
+    
+    # First check if old module has a __file__ attribute we can use
+    if module_name in old_modules:
+        old_mod = old_modules[module_name]
+        if hasattr(old_mod, '__file__') and old_mod.__file__:
+            file_path = old_mod.__file__
+            logger.debug(f"Using file path from old module: {file_path}")
+    
+    # Fall back to config file path if available
+    if not file_path or not os.path.exists(file_path):
+        config_file_path = module_config.filePath
+        if config_file_path and os.path.exists(config_file_path):
+            file_path = config_file_path
+            logger.debug(f"Using file path from config: {file_path}")
+    
+    if file_path and os.path.exists(file_path):
+        return file_path
+    return None
+
+
+def _create_spec(
+    module_name: str,
+    file_path: str,
+    rewriting_finder: Optional['RewritingFinder']  # type: ignore
+) -> Optional[ModuleSpec]:
+    """Create a module spec, optionally with rewriting enabled.
+    
+    Args:
+        module_name: Name of the module
+        file_path: Path to the module file
+        rewriting_finder: Optional RewritingFinder instance
+    
+    Returns:
+        ModuleSpec if created successfully, None otherwise
+    """
+    if rewriting_finder:
+        # Use the RewritingFinder to create a rewriting spec
+        from ncompass.trace.replacers.utils import create_replacer_from_config
+        from ncompass.trace.core.loader import RewritingLoader
+        
+        # Get the merged config for this module
+        merged_config = rewriting_finder.merged_configs.get(module_name)
+        if merged_config:
+            replacer = create_replacer_from_config(module_name, merged_config)
+            spec = importlib.util.spec_from_loader(
+                module_name,
+                RewritingLoader(module_name, file_path, replacer),
+                origin=file_path
+            )
+        else:
+            # No config, use regular spec
+            spec = importlib.util.spec_from_file_location(module_name, file_path)
+    else:
+        # No finder, use regular spec
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+    
+    return spec
+
+
+def _load_module_from_spec(module_name: str, spec: ModuleSpec) -> None:
+    """Load a module from a spec.
+    
+    Args:
+        module_name: Name of the module
+        spec: ModuleSpec to load from
+    """
+    if spec and spec.loader:
+        new_module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = new_module
+        spec.loader.exec_module(new_module)
+        logger.debug(f"Re-imported module from file path with rewrites enabled: {module_name}")
+    else:
+        logger.warning(f"Failed to create spec for module {module_name}")
+
+
+def _reimport_single_module(
+    module_name: str,
+    module_config: ModuleConfig,
+    old_modules: Dict[str, Any],
+    rewriting_finder: Optional['RewritingFinder']  # type: ignore
+) -> None:
+    """Reimport a single module.
+    
+    Args:
+        module_name: Name of the module to reimport
+        module_config: Configuration for the module
+        old_modules: Dictionary of old module objects
+        rewriting_finder: Optional RewritingFinder instance
+    """
+    try:
+        # First try standard import (which will go through the RewritingFinder)
+        importlib.import_module(module_name)
+        logger.debug(f"Re-imported module with rewrites enabled: {module_name}")
+    except Exception as e:
+        # If standard import fails, try using the file path with the RewritingFinder
+        # This handles cases where the module was imported locally and doesn't
+        # have a proper package structure
+        
+        file_path = _resolve_module_file_path(module_name, module_config, old_modules)
+        
+        if file_path:
+            try:
+                spec = _create_spec(module_name, file_path, rewriting_finder)
+                if spec:
+                    _load_module_from_spec(module_name, spec)
+                else:
+                    logger.warning(f"Failed to create spec for module {module_name} from {file_path}")
+            except Exception as e2:
+                logger.warning(f"Failed to re-import module {module_name} from file path: {e2}")
+        else:
+            logger.warning(f"Failed to re-import module {module_name}: {e}, and no valid file path available")
+
+
+def reimport_modules(targets: Dict[str, ModuleConfig], old_modules: Dict[str, Any]) -> None:
+    """Reimport modules and update references."""
+    rewriting_finder = _find_rewriting_finder()
+    
+    for module_name, module_config in targets.items():
+        _reimport_single_module(module_name, module_config, old_modules, rewriting_finder)
+    
+    # Update references in all loaded modules' namespaces
+    update_module_references(old_modules)
