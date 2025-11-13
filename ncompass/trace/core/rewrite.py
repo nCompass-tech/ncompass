@@ -19,6 +19,8 @@ Description: Top level utils for AST rewriting.
 import sys
 from typing import Optional, Dict, Any
 import importlib
+import importlib.util
+import os
 
 from ncompass.trace.core.finder import RewritingFinder
 from ncompass.trace.core.pydantic import RewriteConfig
@@ -29,8 +31,6 @@ from ncompass.trace.core.pydantic import ModuleConfig
 
 def _reimport_modules(targets: Dict[str, ModuleConfig], old_modules: Dict[str, Any]) -> None:
     """Reimport modules and update references."""
-    import importlib.util
-    import os
     
     # Get the RewritingFinder from sys.meta_path
     rewriting_finder = None
