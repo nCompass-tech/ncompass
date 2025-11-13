@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 
 
 from ncompass.trace.replacers.base import ReplacerBase
+from ncompass.trace.replacers.dynamic import DynamicReplacer
 
 class TestReplacerBase(unittest.TestCase):
     """Test cases for the ReplacerBase base class."""
@@ -39,10 +40,7 @@ class TestClassReplacements(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has both class and function replacements
-        class TestReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.module"
+        class TestReplacer(DynamicReplacer):
             
             @property
             def class_replacements(self) -> dict[str, str]:
@@ -51,7 +49,7 @@ class TestClassReplacements(unittest.TestCase):
                     "LocalClass": "ReplacementClass"
                 }
         
-        self.replacer = TestReplacer()
+        self.replacer = TestReplacer(_fullname="test.module")
     
     def test_class_replacement_with_module(self):
         """Test that class replacement creates proper import statement."""
@@ -97,18 +95,10 @@ class TestClassReplacements(unittest.TestCase):
         """Test that when a class is replaced, function replacements are applied to the replacement class name."""
         # Create a custom replacer that replaces ClassA with ClassB, 
         # and ClassB has function replacements
-        class OrderTestReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.order"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {
-                    "ClassA": "replacement.module.ClassB"
-                }
-        
-        replacer = OrderTestReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.order",
+            _class_replacements={"ClassA": "replacement.module.ClassB"}
+        )
         
         # Create ClassA with foo method
         foo_method = ast.FunctionDef(
@@ -147,21 +137,11 @@ class TestClassReplacements(unittest.TestCase):
     def test_function_replacement_without_class_replacement(self):
         """Test that function replacements work when class is not being replaced."""
         # Create a replacer that only has function replacements for a class
-        class FuncOnlyReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.func"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-            
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
+        class FuncOnlyReplacer(DynamicReplacer):
+            """Dummy replacer for testing function replacements."""
         
-        replacer = FuncOnlyReplacer()
-        
+        replacer = FuncOnlyReplacer(_fullname="test.func")
+
         # Create TestClass with original_method
         original_method = ast.FunctionDef(
             name="original_method",
@@ -217,26 +197,17 @@ class TestClassFuncReplacements(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has method replacements
-        class MethodReplacementTestReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.method.replacement"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {
-                    "TestClass": {
-                        "old_method": "replacement.module.ReplacementClass.new_method",
-                        "static_method": "replacement.module.standalone_function",
-                        "class_method": "replacement.module.ReplacementClass.new_class_method"
-                    }
+        self.replacer = DynamicReplacer(
+            _fullname="test.method.replacement",
+            _class_replacements={},
+            _class_func_replacements={
+                "TestClass": {
+                    "old_method": "replacement.module.ReplacementClass.new_method",
+                    "static_method": "replacement.module.standalone_function",
+                    "class_method": "replacement.module.ReplacementClass.new_class_method"
                 }
-        
-        self.replacer = MethodReplacementTestReplacer()
+            }
+        )
     
     def test_instance_method_replacement(self):
         """Test that instance method replacement creates proper wrapper with import."""
@@ -627,34 +598,22 @@ class TestLineRangeWrapping(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures with a custom replacer."""
         # Create a test replacer that has line range wrappings
-        class LineRangeTestReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.line.range"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 12,
-                        'context_class': 'profiler.NVTXContext',
-                        'context_values': [
-                            {'name': 'name', 'value': 'operation_1', 'type': 'literal'}
-                        ]
-                    }
-                ]
-        
-        self.replacer = LineRangeTestReplacer()
+        self.replacer = DynamicReplacer(
+            _fullname="test.line.range",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 12,
+                    'context_class': 'profiler.NVTXContext',
+                    'context_values': [
+                        {'name': 'name', 'value': 'operation_1', 'type': 'literal'}
+                    ]
+                }
+            ]
+        )
     
     def test_single_line_range_wrapping(self):
         """Test that a single line range gets wrapped correctly."""
@@ -743,43 +702,31 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_multiple_line_ranges_in_same_method(self):
         """Test that multiple non-overlapping line ranges can be wrapped."""
-        class MultiRangeReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.multi.range"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 11,
-                        'context_class': 'profiler.Context1',
-                        'context_values': [
-                            {'name': 'name', 'value': 'first_range', 'type': 'literal'}
-                        ]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 15,
-                        'end_line': 16,
-                        'context_class': 'profiler.Context2',
-                        'context_values': [
-                            {'name': 'name', 'value': 'second_range', 'type': 'literal'}
-                        ]
-                    }
-                ]
-        
-        replacer = MultiRangeReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.multi.range",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 11,
+                    'context_class': 'profiler.Context1',
+                    'context_values': [
+                        {'name': 'name', 'value': 'first_range', 'type': 'literal'}
+                    ]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 15,
+                    'end_line': 16,
+                    'context_class': 'profiler.Context2',
+                    'context_values': [
+                        {'name': 'name', 'value': 'second_range', 'type': 'literal'}
+                    ]
+                }
+            ]
+        )
         
         # Create method with statements in different line ranges
         test_method = ast.FunctionDef(
@@ -852,35 +799,23 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_line_range_with_variable_context_args(self):
         """Test line range wrapping with variable references in context args."""
-        class VarArgsReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.var.args"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 11,
-                        'context_class': 'profiler.NVTXContext',
-                        'context_values': [
-                            {'name': 'name', 'value': 'layer_forward', 'type': 'literal'},
-                            {'name': 'idx', 'value': 'layer_idx', 'type': 'variable'}
-                        ]
-                    }
-                ]
-        
-        replacer = VarArgsReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.var.args",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 11,
+                    'context_class': 'profiler.NVTXContext',
+                    'context_values': [
+                        {'name': 'name', 'value': 'layer_forward', 'type': 'literal'},
+                        {'name': 'idx', 'value': 'layer_idx', 'type': 'variable'}
+                    ]
+                }
+            ]
+        )
         
         test_method = ast.FunctionDef(
             name="test_method",
@@ -950,34 +885,22 @@ class TestLineRangeWrapping(unittest.TestCase):
     def test_no_statements_in_range_warning(self):
         """Test that wrapping with no statements in range produces warning."""
         # This test verifies the warning path when no statements fall in the range
-        class EmptyRangeReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.empty.range"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 100,  # No statements at this line
-                        'end_line': 105,
-                        'context_class': 'profiler.NVTXContext',
-                        'context_values': [
-                            {'name': 'name', 'value': 'operation', 'type': 'literal'}
-                        ]
-                    }
-                ]
-        
-        replacer = EmptyRangeReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.empty.range",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 100,  # No statements at this line
+                    'end_line': 105,
+                    'context_class': 'profiler.NVTXContext',
+                    'context_values': [
+                        {'name': 'name', 'value': 'operation', 'type': 'literal'}
+                    ]
+                }
+            ]
+        )
         
         test_method = ast.FunctionDef(
             name="test_method",
@@ -1110,39 +1033,27 @@ class TestLineRangeWrapping(unittest.TestCase):
     
     def test_line_range_import_deduplication(self):
         """Test that multiple ranges using same context class only import once."""
-        class DedupReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.dedup"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 11,
-                        'context_class': 'profiler.NVTXContext',
-                        'context_values': [{'name': 'name', 'value': 'range1', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 15,
-                        'end_line': 16,
-                        'context_class': 'profiler.NVTXContext',  # Same class
-                        'context_values': [{'name': 'name', 'value': 'range2', 'type': 'literal'}]
-                    }
-                ]
-        
-        replacer = DedupReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.dedup",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 11,
+                    'context_class': 'profiler.NVTXContext',
+                    'context_values': [{'name': 'name', 'value': 'range1', 'type': 'literal'}]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 15,
+                    'end_line': 16,
+                    'context_class': 'profiler.NVTXContext',  # Same class
+                    'context_values': [{'name': 'name', 'value': 'range2', 'type': 'literal'}]
+                }
+            ]
+        )
         
         test_method = ast.FunctionDef(
             name="test_method",
@@ -1196,53 +1107,41 @@ class TestLineRangeWrapping(unittest.TestCase):
         - An outer wrapper covers the entire method (e.g., lines 429-461)
         - Multiple inner wrappers cover specific operations within (e.g., 431-434, 436-437, 446-447)
         """
-        class NestedReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.nested"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 30,
-                        'context_class': 'profiler.OuterContext',
-                        'context_values': []
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 12,
-                        'end_line': 14,
-                        'context_class': 'profiler.Inner1Context',
-                        'context_values': [{'name': 'name', 'value': 'operation_1', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 16,
-                        'end_line': 17,
-                        'context_class': 'profiler.Inner2Context',
-                        'context_values': [{'name': 'name', 'value': 'operation_2', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 20,
-                        'end_line': 21,
-                        'context_class': 'profiler.Inner3Context',
-                        'context_values': [{'name': 'name', 'value': 'operation_3', 'type': 'literal'}]
-                    }
-                ]
-        
-        replacer = NestedReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.nested",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 30,
+                    'context_class': 'profiler.OuterContext',
+                    'context_values': []
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 12,
+                    'end_line': 14,
+                    'context_class': 'profiler.Inner1Context',
+                    'context_values': [{'name': 'name', 'value': 'operation_1', 'type': 'literal'}]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 16,
+                    'end_line': 17,
+                    'context_class': 'profiler.Inner2Context',
+                    'context_values': [{'name': 'name', 'value': 'operation_2', 'type': 'literal'}]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 20,
+                    'end_line': 21,
+                    'context_class': 'profiler.Inner3Context',
+                    'context_values': [{'name': 'name', 'value': 'operation_3', 'type': 'literal'}]
+                }
+            ]
+        )
         
         # Create method with statements spanning the ranges
         test_method = ast.FunctionDef(
@@ -1356,46 +1255,34 @@ class TestLineRangeWrapping(unittest.TestCase):
         - A small wrapper following it (lines 16-19)
         - Another wrapper after that (lines 20-25)
         """
-        class SequentialReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.sequential"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    {
-                        'function': 'test_method',
-                        'start_line': 5,
-                        'end_line': 15,
-                        'context_class': 'profiler.LargeContext',
-                        'context_values': [{'name': 'name', 'value': 'large_operation', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 16,
-                        'end_line': 19,
-                        'context_class': 'profiler.SmallContext',
-                        'context_values': [{'name': 'name', 'value': 'small_operation', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'test_method',
-                        'start_line': 20,
-                        'end_line': 25,
-                        'context_class': 'profiler.MediumContext',
-                        'context_values': [{'name': 'name', 'value': 'medium_operation', 'type': 'literal'}]
-                    }
-                ]
-        
-        replacer = SequentialReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.sequential",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 5,
+                    'end_line': 15,
+                    'context_class': 'profiler.LargeContext',
+                    'context_values': [{'name': 'name', 'value': 'large_operation', 'type': 'literal'}]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 16,
+                    'end_line': 19,
+                    'context_class': 'profiler.SmallContext',
+                    'context_values': [{'name': 'name', 'value': 'small_operation', 'type': 'literal'}]
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 20,
+                    'end_line': 25,
+                    'context_class': 'profiler.MediumContext',
+                    'context_values': [{'name': 'name', 'value': 'medium_operation', 'type': 'literal'}]
+                }
+            ]
+        )
         
         # Create method with statements in all ranges
         test_method = ast.FunctionDef(
@@ -1464,63 +1351,51 @@ class TestLineRangeWrapping(unittest.TestCase):
         - Lines 17-20: inner operation 2
         - Lines 55-60: separate sequential wrapper after the main method logic
         """
-        class ComplexReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.complex"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    # Outer wrapper for main execution
-                    {
-                        'function': 'execute_model',
-                        'start_line': 10,
-                        'end_line': 50,
-                        'context_class': 'ncompass.trace.profile.torch.TorchProfilerContext',
-                        'context_values': []
-                    },
-                    # Inner wrappers for specific operations
-                    {
-                        'function': 'execute_model',
-                        'start_line': 12,
-                        'end_line': 15,
-                        'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
-                        'context_values': [{'name': 'name', 'value': 'recv_intermediate_tensors', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'execute_model',
-                        'start_line': 17,
-                        'end_line': 20,
-                        'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
-                        'context_values': [{'name': 'name', 'value': 'execute_model', 'type': 'literal'}]
-                    },
-                    {
-                        'function': 'execute_model',
-                        'start_line': 30,
-                        'end_line': 32,
-                        'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
-                        'context_values': [{'name': 'name', 'value': 'send_tensor_dict', 'type': 'literal'}]
-                    },
-                    # Separate wrapper outside the main execution
-                    {
-                        'function': 'execute_model',
-                        'start_line': 55,
-                        'end_line': 60,
-                        'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
-                        'context_values': [{'name': 'name', 'value': 'cleanup', 'type': 'literal'}]
-                    }
-                ]
-        
-        replacer = ComplexReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.complex",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                # Outer wrapper for main execution
+                {
+                    'function': 'execute_model',
+                    'start_line': 10,
+                    'end_line': 50,
+                    'context_class': 'ncompass.trace.profile.torch.TorchProfilerContext',
+                    'context_values': []
+                },
+                # Inner wrappers for specific operations
+                {
+                    'function': 'execute_model',
+                    'start_line': 12,
+                    'end_line': 15,
+                    'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
+                    'context_values': [{'name': 'name', 'value': 'recv_intermediate_tensors', 'type': 'literal'}]
+                },
+                {
+                    'function': 'execute_model',
+                    'start_line': 17,
+                    'end_line': 20,
+                    'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
+                    'context_values': [{'name': 'name', 'value': 'execute_model', 'type': 'literal'}]
+                },
+                {
+                    'function': 'execute_model',
+                    'start_line': 30,
+                    'end_line': 32,
+                    'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
+                    'context_values': [{'name': 'name', 'value': 'send_tensor_dict', 'type': 'literal'}]
+                },
+                # Separate wrapper outside the main execution
+                {
+                    'function': 'execute_model',
+                    'start_line': 55,
+                    'end_line': 60,
+                    'context_class': 'ncompass.trace.profile.torch.TorchRecordContext',
+                    'context_values': [{'name': 'name', 'value': 'cleanup', 'type': 'literal'}]
+                }
+            ]
+        )
         
         # Create a method simulating the execute_model structure
         test_method = ast.FunctionDef(
@@ -1638,49 +1513,37 @@ class TestLineRangeWrapping(unittest.TestCase):
         This is critical for the execute_model case where there's an early return
         at line 439 that should not cause UnboundLocalError.
         """
-        class EarlyReturnReplacer(ReplacerBase):
-            @property
-            def fullname(self) -> str:
-                return "test.early_return"
-            
-            @property
-            def class_replacements(self) -> dict[str, str]:
-                return {}
-
-            @property
-            def class_func_replacements(self) -> dict[str, dict[str, str]]:
-                return {}
-            
-            @property
-            def func_line_range_wrappings(self) -> list[dict]:
-                return [
-                    # Outer wrapper
-                    {
-                        'function': 'test_method',
-                        'start_line': 10,
-                        'end_line': 40,
-                        'context_class': 'profiler.OuterContext',
-                        'context_values': []
-                    },
-                    # Inner wrapper that assigns a variable
-                    {
-                        'function': 'test_method',
-                        'start_line': 15,
-                        'end_line': 17,
-                        'context_class': 'profiler.AssignContext',
-                        'context_values': [{'name': 'name', 'value': 'assign_output', 'type': 'literal'}]
-                    },
-                    # Another inner wrapper that uses the variable
-                    {
-                        'function': 'test_method',
-                        'start_line': 25,
-                        'end_line': 27,
-                        'context_class': 'profiler.UseContext',
-                        'context_values': [{'name': 'name', 'value': 'use_output', 'type': 'literal'}]
-                    }
-                ]
-        
-        replacer = EarlyReturnReplacer()
+        replacer = DynamicReplacer(
+            _fullname="test.early_return",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                # Outer wrapper
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 40,
+                    'context_class': 'profiler.OuterContext',
+                    'context_values': []
+                },
+                # Inner wrapper that assigns a variable
+                {
+                    'function': 'test_method',
+                    'start_line': 15,
+                    'end_line': 17,
+                    'context_class': 'profiler.AssignContext',
+                    'context_values': [{'name': 'name', 'value': 'assign_output', 'type': 'literal'}]
+                },
+                # Another inner wrapper that uses the variable
+                {
+                    'function': 'test_method',
+                    'start_line': 25,
+                    'end_line': 27,
+                    'context_class': 'profiler.UseContext',
+                    'context_values': [{'name': 'name', 'value': 'use_output', 'type': 'literal'}]
+                }
+            ]
+        )
         
         # Create method with early return between assignment and usage
         test_method = ast.FunctionDef(
