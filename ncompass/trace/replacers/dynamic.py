@@ -35,7 +35,7 @@ class DynamicReplacerImpl:
         
         Returns the replacement statement if a replacement is found, None otherwise.
         """
-        repl = self.class_replacements.get(node.name)
+        repl = self.class_replacements.get(node.name)  # type: ignore[attr-defined]
         if not repl:
             return None
         
@@ -59,7 +59,7 @@ class DynamicReplacerImpl:
         
         Modifies node.body in place.
         """
-        repl_map = self.class_func_replacements.get(node.name, {})
+        repl_map = self.class_func_replacements.get(node.name, {})  # type: ignore[attr-defined]
         if not repl_map:
             return
         
@@ -84,7 +84,7 @@ class DynamicReplacerImpl:
         
         Modifies node.body in place by wrapping specified function calls with contexts.
         """
-        context_wrappings = self.class_func_context_wrappings.get(node.name, {})
+        context_wrappings = self.class_func_context_wrappings.get(node.name, {})  # type: ignore[attr-defined]
         if not context_wrappings:
             return
         
@@ -215,7 +215,7 @@ class DynamicReplacerImpl:
         )
 
 
-@dataclass(slots=True, frozen=False)
+@dataclass(slots=True, frozen=False, init=False)  # type: ignore[call-overload]
 class DynamicReplacer(ReplacerBase, DynamicReplacerImpl):
     """Dynamically created Replacer from AI-generated configs."""
     _fullname: str
@@ -224,6 +224,22 @@ class DynamicReplacer(ReplacerBase, DynamicReplacerImpl):
     _class_func_context_wrappings: dict[str, dict[str, dict]] = field(default_factory=dict)
     _func_line_range_wrappings: list[dict] = field(default_factory=list)
     
+
+    def __init__(
+        self,
+        _fullname: str,
+        _class_replacements: Optional[dict[str, str]] = None,
+        _class_func_replacements: Optional[dict[str, dict[str, str]]] = None,
+        _class_func_context_wrappings: Optional[dict[str, dict[str, dict]]] = None,
+        _func_line_range_wrappings: Optional[list[dict]] = None,
+    ) -> None:
+        super(ReplacerBase, self).__init__()  # NodeTransformer init
+        self._fullname = _fullname
+        self._class_replacements = _class_replacements or {}
+        self._class_func_replacements = _class_func_replacements or {}
+        self._class_func_context_wrappings = _class_func_context_wrappings or {}
+        self._func_line_range_wrappings = _func_line_range_wrappings or []
+
     @property
     def fullname(self) -> str:
         return self._fullname
