@@ -203,6 +203,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         ai_configs = {}
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 1, 'end_line': 5}
                 ]
@@ -217,6 +218,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs with empty manual configs."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 1, 'end_line': 5}
                 ]
@@ -239,6 +241,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         }
         manual_configs = {
             'module2.py': {
+                'filePath': 'module2.py',
                 'func_line_range_wrappings': [
                     {'function': 'bar', 'start_line': 10, 'end_line': 15}
                 ]
@@ -254,6 +257,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs with same file but no conflicts."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 1, 'end_line': 5}
                 ]
@@ -261,6 +265,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         }
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'bar', 'start_line': 10, 'end_line': 15}
                 ]
@@ -276,6 +281,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs with overlapping markers."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 5, 'end_line': 15}  # Overlaps with manual
                 ]
@@ -283,6 +289,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         }
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'bar', 'start_line': 1, 'end_line': 10}  # Overlaps with AI
                 ]
@@ -300,6 +307,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs with multiple AI markers, some conflicting."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'ai_foo', 'start_line': 5, 'end_line': 15},  # Conflicts
                     {'function': 'ai_bar', 'start_line': 20, 'end_line': 25}  # No conflict
@@ -308,6 +316,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         }
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'manual_foo', 'start_line': 1, 'end_line': 10}
                 ]
@@ -328,6 +337,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs when manual config has no wrappings."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 1, 'end_line': 5}
                 ]
@@ -335,6 +345,7 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         }
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'class_replacements': {'OldClass': 'NewClass'}
             }
         }
@@ -351,11 +362,13 @@ class TestMergeMarkerConfigs(unittest.TestCase):
         """Test merge_marker_configs when AI config has no wrappings."""
         ai_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'class_replacements': {'AIClass': 'NewClass'}
             }
         }
         manual_configs = {
             'module1.py': {
+                'filePath': 'module1.py',
                 'func_line_range_wrappings': [
                     {'function': 'foo', 'start_line': 1, 'end_line': 5}
                 ]
@@ -590,7 +603,7 @@ class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
         self.test_refs['model_instance'] = main_module.model
         
         # Simulate clear_cached_modules (as done by enable_rewrites)
-        targets = {fully_qualified_name: ModuleConfig()}
+        targets = {fully_qualified_name: ModuleConfig(filePath=model_file)}
         old_modules = clear_cached_modules(targets)
         
         # After fix: clear_cached_modules should find the module under the local name
@@ -748,7 +761,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         self.sys.modules[local_name] = test_module
         
         # Call clear_cached_modules with the fully qualified name
-        targets = {fully_qualified_name: ModuleConfig()}
+        targets = {fully_qualified_name: ModuleConfig(filePath='/path/to/model.py')}
         old_modules = clear_cached_modules(targets)
         
         # Should find the module under the local name
@@ -791,7 +804,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         self.sys.modules[local_name] = local_module
         
         # Call clear_cached_modules
-        targets = {fully_qualified_name: ModuleConfig()}
+        targets = {fully_qualified_name: ModuleConfig(filePath='/path/to/model.py')}
         old_modules = clear_cached_modules(targets)
         
         # Should prefer the fully qualified name
@@ -808,7 +821,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         """Test that clear_cached_modules preserves __file__ attribute for later use.
         
         The __file__ attribute is critical for the fallback file path loading
-        in _reimport_modules when standard import fails.
+        in reimport_modules when standard import fails.
         """
         from ncompass.trace.core.utils import clear_cached_modules
         from ncompass.trace.core.pydantic import ModuleConfig
@@ -824,7 +837,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         self.sys.modules[local_name] = test_module
         
         # Clear cached modules
-        targets = {fully_qualified_name: ModuleConfig()}
+        targets = {fully_qualified_name: ModuleConfig(filePath=file_path)}
         old_modules = clear_cached_modules(targets)
         
         # Verify __file__ is preserved in old_modules
@@ -865,7 +878,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         
         # Clear with fully qualified name
         fully_qualified_name = 'tests.trace._data.model'
-        targets = {fully_qualified_name: ModuleConfig()}
+        targets = {fully_qualified_name: ModuleConfig(filePath=run_file)}
         old_modules = clear_cached_modules(targets)
         
         # Should find the module

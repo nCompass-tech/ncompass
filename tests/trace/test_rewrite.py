@@ -121,7 +121,7 @@ class TestClearCachedModules(unittest.TestCase):
         sys.modules['test_module'] = test_module
         
         # Clear it
-        targets = {'test_module': ModuleConfig()}
+        targets = {'test_module': ModuleConfig(filePath='test_module.py')}
         old_modules = clear_cached_modules(targets)
         
         # Module should be removed from sys.modules
@@ -132,7 +132,7 @@ class TestClearCachedModules(unittest.TestCase):
     
     def test_clear_cached_modules_handles_nonexistent_module(self):
         """Test that clear_cached_modules handles modules not in sys.modules."""
-        targets = {'nonexistent_module': ModuleConfig()}
+        targets = {'nonexistent_module': ModuleConfig(filePath='nonexistent_module.py')}
         old_modules = clear_cached_modules(targets)
         
         # Should return empty dict for nonexistent module
@@ -148,7 +148,7 @@ class TestClearCachedModules(unittest.TestCase):
         sys.modules['parent.child'] = child_module
         
         # Clear parent
-        targets = {'parent': ModuleConfig()}
+        targets = {'parent': ModuleConfig(filePath='parent.py')}
         old_modules = clear_cached_modules(targets)
         
         # Both should be removed
@@ -290,7 +290,7 @@ class TestModuleReloadingIntegration(unittest.TestCase):
         # Enable rewrites with this module as target
         config = RewriteConfig(
             targets={
-                'test_integration_module': ModuleConfig()
+                'test_integration_module': ModuleConfig(filePath='test_integration_module.py')
             }
         )
         enable_rewrites(config)
@@ -328,7 +328,7 @@ class TestModuleReloadingIntegration(unittest.TestCase):
         # Enable rewrites
         config = RewriteConfig(
             targets={
-                'test_preimport_module': ModuleConfig()
+                'test_preimport_module': ModuleConfig(filePath='test_preimport_module.py')
             }
         )
         enable_rewrites(config)
@@ -382,7 +382,7 @@ class TestLocalImports(unittest.TestCase):
     
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
     def test_reimport_modules_local_import_before_enable_rewrites(self):
-        """Test _reimport_modules when module was imported locally before enable_rewrites.
+        """Test reimport_modules when module was imported locally before enable_rewrites.
         
         Uses actual files from tests/trace/_data/:
         Simulates running 'python run.py' which does 'from model import Model' at module level.
@@ -407,7 +407,7 @@ class TestLocalImports(unittest.TestCase):
         fully_qualified_name = 'tests.trace._data.model'
         config = RewriteConfig(
             targets={
-                fully_qualified_name: ModuleConfig()
+                fully_qualified_name: ModuleConfig(filePath=run_file)
             }
         )
         enable_rewrites(config)
@@ -439,7 +439,7 @@ class TestLocalImports(unittest.TestCase):
         This test verifies the fix for the scenario where:
         1. Module is imported locally (stored as 'model' in sys.modules)
         2. Config specifies a fully qualified name that can't be imported normally
-        3. _reimport_modules falls back to file path loading with RewritingLoader
+        3. reimport_modules falls back to file path loading with RewritingLoader
         4. AST rewrites are actually applied to the reloaded module
         """
         import os
