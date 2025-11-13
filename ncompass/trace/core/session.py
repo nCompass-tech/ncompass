@@ -18,7 +18,7 @@ Description: Main ProfilingSession API for iterative profiling workflow.
 
 import os
 from pathlib import Path
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Sequence
 import glob
 import gzip
 import shutil
@@ -78,6 +78,8 @@ class ProfilingSession:
     def run_profile(
         self,
         user_code: Callable,
+        user_code_args: Optional[Sequence[Any]] = None,
+        user_code_kwargs: Optional[Dict] = None,
         trace_name_suffix: Optional[str] = None,
         filter_trace: Optional[bool] = False,
         filter_trace_args: Optional[Dict[str, Any]] = None
@@ -85,6 +87,8 @@ class ProfilingSession:
         """Profile the user's code.
         Args:
             user_code: Callable that runs the code to profile
+            user_code_args: Optional arguments to pass to the user code
+            user_code_kwargs: Optional keyword arguments to pass to the user code
             trace_name_suffix: Optional suffix to add to trace name
             filter_trace: Optional whether to filter the trace
             filter_trace_args: Optional arguments to filter the trace
@@ -103,7 +107,9 @@ class ProfilingSession:
 
         # Run user code
         try:
-            user_code()
+            user_code_args = user_code_args or ()
+            user_code_kwargs = user_code_kwargs or {}
+            user_code(*user_code_args, **user_code_kwargs)
         except Exception as e:
             logger.error(f"[ProfilingSession] Error during profiling: {e}")
             raise
