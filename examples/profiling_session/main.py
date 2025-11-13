@@ -21,12 +21,9 @@ from ncompass.trace.infra.utils import logger
 import logging
 import os
 from config import config
+from model import run_model_inference
 
 logger.setLevel(logging.DEBUG)
-
-def code_to_run():
-    from model import run_model_inference
-    run_model_inference(enable_profiler=True)
 
 def main():
     """Main iterative profiling workflow."""
@@ -46,7 +43,8 @@ def main():
     # Trace will be named: pytorch_model_initial_YYYY_MM_DD_HH_MM_SS.pt.trace.json
     # Using PyTorch's built-in profiler (no injection needed)
     trace_file = session.run_profile(
-        user_code=code_to_run,
+        user_code=run_model_inference,
+        user_code_kwargs={'enable_profiler': True},
         trace_name_suffix="initial",  # Optional: adds descriptive suffix
     )
     
@@ -107,7 +105,8 @@ def main():
     # Trace will be named: pytorch_model_detailed_YYYY_MM_DD_HH_MM_SS.pt.trace.json
     # Now with AI-generated TorchRecordContext markers injected
     filtered_trace_file = session.run_profile(
-        user_code=code_to_run,
+        user_code=run_model_inference,
+        user_code_kwargs={'enable_profiler': True},
         trace_name_suffix="detailed",  # Optional: adds descriptive suffix
         filter_trace=True  # Optional: filter the trace to only show user annotations
     )

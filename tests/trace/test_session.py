@@ -126,6 +126,43 @@ class TestProfilingSessionRunProfile(unittest.TestCase):
         self.assertTrue(call_args['await_result'])
     
     @patch('ncompass.trace.core.session.ProfilingSession._find_and_rename_latest_trace')
+    def test_run_profile_with_args(self, mock_find_rename):
+        """Test profile run with positional arguments."""
+        mock_find_rename.return_value = f"{self.temp_dir}/test_trace.pt.trace.json"
+        
+        call_args = []
+        def user_code(arg1, arg2):
+            call_args.extend([arg1, arg2])
+        
+        result = self.session.run_profile(
+            user_code,
+            user_code_args=("value1", "value2")
+        )
+        
+        self.assertEqual(call_args, ["value1", "value2"])
+        self.assertEqual(result, mock_find_rename.return_value)
+        mock_find_rename.assert_called_once()
+    
+    @patch('ncompass.trace.core.session.ProfilingSession._find_and_rename_latest_trace')
+    def test_run_profile_with_kwargs(self, mock_find_rename):
+        """Test profile run with keyword arguments."""
+        mock_find_rename.return_value = f"{self.temp_dir}/test_trace.pt.trace.json"
+        
+        call_kwargs = {}
+        def user_code(param1=None, param2=None):
+            call_kwargs.update({'param1': param1, 'param2': param2})
+        
+        result = self.session.run_profile(
+            user_code,
+            user_code_kwargs={'param1': 'value1', 'param2': 'value2'}
+        )
+        
+        self.assertEqual(call_kwargs['param1'], 'value1')
+        self.assertEqual(call_kwargs['param2'], 'value2')
+        self.assertEqual(result, mock_find_rename.return_value)
+        mock_find_rename.assert_called_once()
+    
+    @patch('ncompass.trace.core.session.ProfilingSession._find_and_rename_latest_trace')
     def test_run_profile_user_code_exception(self, mock_find_rename):
         """Test that exceptions in user code are propagated."""
         def failing_code():
