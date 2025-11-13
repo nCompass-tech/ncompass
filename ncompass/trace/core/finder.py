@@ -40,7 +40,6 @@ class _RewritingFinderBase(importlib.abc.MetaPathFinder):
         self.target_fullnames = list(config.get('targets', {}).keys()) if config else []
         self.manual_configs: Dict[str, Dict[str, Any]] = config.get('targets', {}) if config else {}
         self.merged_configs: Dict[str, Any] = dict(self.manual_configs)
-        self.ai_analysis_done = False
         self.base_url = os.getenv('BASE_URL', 'http://localhost:8000')
 
     def find_spec(
@@ -58,7 +57,11 @@ class RewritingFinder(_RewritingFinderBase):
         super().__init__(config=config)
         
         # Run AI analysis and get AI configs
-        ai_configs = self._run_ai_analysis_if_needed()
+        use_ai = os.getenv('USE_AI_PROFILING', 'false').lower() in ('true', '1', 'yes')
+        if use_ai:
+            ai_configs = self._run_ai_analysis()
+        else:
+            ai_configs = {}
         
         # Merge AI configs with manual configs, resolving conflicts
         if ai_configs:
@@ -102,21 +105,12 @@ class RewritingFinder(_RewritingFinderBase):
             
         return filepath_to_fullname
     
-    def _run_ai_analysis_if_needed(self) -> Dict[str, Any]:
+    def _run_ai_analysis(self) -> Dict[str, Any]:
         """Run AI profiling analysis once for all target files if enabled.
         
         Returns:
             Dictionary of AI-generated configurations (empty if AI is disabled or errors occur)
         """
-        if self.ai_analysis_done:
-            return {}
-        
-        self.ai_analysis_done = True
-        
-        # Check if AI profiling is enabled
-        use_ai = os.getenv('USE_AI_PROFILING', 'false').lower() in ('true', '1', 'yes')
-        if not use_ai:
-            return {}
         
         try:
             logger.debug("[AI Profiler] Starting AI-powered profiling analysis...")
