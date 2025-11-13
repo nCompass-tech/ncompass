@@ -11,7 +11,7 @@ from ncompass.trace.core.finder import _RewritingFinderBase, RewritingFinder
 
 class TestRewritingFinderBase(unittest.TestCase):
     """Test cases for the _RewritingFinderBase class."""
-    
+
     def test_init_with_no_config(self):
         """Test _RewritingFinderBase initialization with no config."""
         finder = _RewritingFinderBase(config=None)
@@ -20,8 +20,7 @@ class TestRewritingFinderBase(unittest.TestCase):
         self.assertEqual(finder.target_fullnames, [])
         self.assertEqual(finder.manual_configs, {})
         self.assertEqual(finder.merged_configs, {})
-        self.assertFalse(finder.ai_analysis_done)
-    
+
     def test_init_with_config(self):
         """Test _RewritingFinderBase initialization with config."""
         config = {
@@ -304,8 +303,8 @@ class TestRewritingFinder(unittest.TestCase):
         self.assertIsNone(result)
     
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'true'})
-    @patch('ncompass.trace.core.utils.submit_queue_request')
-    @patch('importlib.util.find_spec')
+    @patch('ncompass.trace.core.finder.submit_queue_request')
+    @patch('importlib.machinery.PathFinder.find_spec')
     def test_ai_analysis_enabled_with_configs(self, mock_find_spec, mock_submit):
         """Test AI analysis with successful config generation."""
         # Mock AI service returning configs
@@ -348,17 +347,16 @@ class TestRewritingFinder(unittest.TestCase):
             self.assertIn('manual.module', finder.target_fullnames)
     
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
-    def test_ai_analysis_already_done(self):
-        """Test that _run_ai_analysis_if_needed returns early if already done."""
-        finder = RewritingFinder(config=self.config)
-        
-        # Set ai_analysis_done to True
-        finder.ai_analysis_done = True
-        
-        # Call again should return empty dict immediately
-        result = finder._run_ai_analysis_if_needed()
-        
-        self.assertEqual(result, {})
+    @patch.object(RewritingFinder, '_run_ai_analysis')
+    def test_ai_analysis_skipped_when_disabled(self, mock_run_ai):
+        """Should skip _run_ai_analysis when USE_AI_PROFILING=false."""
+        config = {
+            'targets': {},
+            'ai_analysis_targets': ['module1', 'module2']
+        }
+        finder = RewritingFinder(config=config)
+        mock_run_ai.assert_not_called()
+        self.assertEqual(finder.merged_configs, config["targets"])
     
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'true'})
     @patch('ncompass.trace.core.utils.submit_queue_request')
@@ -491,7 +489,6 @@ class TestRewritingFinder(unittest.TestCase):
         
         # Should fall back to manual configs (may include additional metadata fields)
         self.assertIn('manual.module', finder.merged_configs)
-        self.assertTrue(finder.ai_analysis_done)
 
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
     @patch('ncompass.trace.core.finder.create_replacer_from_config')
