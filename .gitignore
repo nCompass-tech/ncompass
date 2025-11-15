@@ -210,4 +210,7 @@ __marimo__/
 # Miscellaneous
 venv-lsp/
 **/venv-lsp/
+reqs/
 nc_reqs.txt
+
+publish/config.yaml
