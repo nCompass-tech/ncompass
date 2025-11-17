@@ -2,7 +2,6 @@ import os
 import argparse
 import subprocess
 
-from dotenv import load_dotenv
 from pathlib import Path
 
 def build_image(tag: str, name: str, installdir: str):
@@ -20,8 +19,6 @@ def build_image(tag: str, name: str, installdir: str):
 def run_container(tag:str, name:str, auto_exec=True):
     print("Running the Docker container...")
     container_name = f"nc_{name}:{tag}"
-
-    load_dotenv()
     
     # Check if the container is already running and stop it if so
     result = subprocess.run(

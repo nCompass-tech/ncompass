@@ -52,12 +52,8 @@ RUN ln -sf /usr/local/cuda/lib64/libcudart.so.12 /usr/local/cuda/lib64/libcudart
 RUN echo "set -o vi" >> ~/.bashrc
 RUN echo "source /opt/venv/bin/activate" >> ~/.bashrc
 
-RUN uv pip install requests \
-  python-dotenv \
-  pydantic>=2.0 \
-  ncompasslib \
-  torch \
-  ncompass>=0.1.7
+COPY requirements.txt /workspace/requirements.txt
+RUN uv pip install -r /workspace/requirements.txt 
 
 # Accept vLLM wheel filename via build-arg and copy wheels from build_whls/
 ENV PYTHONPATH=/workspace
