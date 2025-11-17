@@ -1619,5 +1619,637 @@ class TestLineRangeWrapping(unittest.TestCase):
         if_statements = [stmt for stmt in outer_with.body if isinstance(stmt, ast.If)]
         self.assertGreaterEqual(len(if_statements), 1, "Early return If statement should be preserved")
 
+
+class TestStatementFlattening(unittest.TestCase):
+    """Test cases for statement flattening and compound statement handling in metadata."""
+    
+    def test_compound_statements_included_in_metadata(self):
+        """Test that compound statements (If, For, While, With, Try) are included in metadata."""
+        replacer = DynamicReplacer(
+            _fullname="test.flattening",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 30,
+                    'context_class': 'profiler.OuterContext',
+                    'context_values': []
+                }
+            ]
+        )
+        
+        # Create method with various compound statements
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.If(
+                    test=ast.Name(id="condition", ctx=ast.Load()),
+                    body=[ast.Pass()],
+                    orelse=[],
+                    lineno=12
+                ),
+                ast.For(
+                    target=ast.Name(id="i", ctx=ast.Store()),
+                    iter=ast.Call(func=ast.Name(id="range", ctx=ast.Load()), args=[ast.Constant(value=5)], keywords=[]),
+                    body=[ast.Pass()],
+                    orelse=[],
+                    lineno=15
+                ),
+                ast.While(
+                    test=ast.Name(id="running", ctx=ast.Load()),
+                    body=[ast.Pass()],
+                    orelse=[],
+                    lineno=18
+                ),
+                ast.Try(
+                    body=[ast.Pass()],
+                    handlers=[],
+                    orelse=[],
+                    finalbody=[],
+                    lineno=20
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="y", ctx=ast.Store())],
+                    value=ast.Constant(value=2),
+                    lineno=30
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Get the outer wrapper
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        self.assertEqual(len(non_import_stmts), 1)
+        outer_with = non_import_stmts[0]
+        self.assertIsInstance(outer_with, ast.With)
+        
+        # Verify that compound statements are preserved in the wrapped body
+        outer_body = outer_with.body
+        compound_stmts = [stmt for stmt in outer_body if isinstance(stmt, (ast.If, ast.For, ast.While, ast.Try))]
+        self.assertEqual(len(compound_stmts), 4, "All compound statements should be preserved")
+        
+        # Verify types
+        if_stmts = [stmt for stmt in compound_stmts if isinstance(stmt, ast.If)]
+        for_stmts = [stmt for stmt in compound_stmts if isinstance(stmt, ast.For)]
+        while_stmts = [stmt for stmt in compound_stmts if isinstance(stmt, ast.While)]
+        try_stmts = [stmt for stmt in compound_stmts if isinstance(stmt, ast.Try)]
+        
+        self.assertEqual(len(if_stmts), 1, "If statement should be preserved")
+        self.assertEqual(len(for_stmts), 1, "For statement should be preserved")
+        self.assertEqual(len(while_stmts), 1, "While statement should be preserved")
+        self.assertEqual(len(try_stmts), 1, "Try statement should be preserved")
+    
+    def test_wrapping_compound_statement_directly(self):
+        """Test that a compound statement (If) can be wrapped directly when its line range matches."""
+        replacer = DynamicReplacer(
+            _fullname="test.wrap_compound",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 12,
+                    'end_line': 15,
+                    'context_class': 'profiler.IfContext',
+                    'context_values': [{'name': 'name', 'value': 'conditional', 'type': 'literal'}]
+                }
+            ]
+        )
+        
+        # Create method with an If statement spanning lines 12-15
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.If(
+                    test=ast.Name(id="condition", ctx=ast.Load()),
+                    body=[
+                        ast.Assign(
+                            targets=[ast.Name(id="y", ctx=ast.Store())],
+                            value=ast.Constant(value=2),
+                            lineno=13
+                        ),
+                        ast.Pass(lineno=14)
+                    ],
+                    orelse=[],
+                    lineno=12
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="z", ctx=ast.Store())],
+                    value=ast.Constant(value=3),
+                    lineno=20
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Verify structure
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        self.assertEqual(len(non_import_stmts), 3)  # x assignment, wrapped If, z assignment
+        
+        # Find the wrapped If statement
+        wrapped_if = None
+        for stmt in non_import_stmts:
+            if isinstance(stmt, ast.With):
+                if isinstance(stmt.body[0], ast.If):
+                    wrapped_if = stmt.body[0]
+                    break
+        
+        self.assertIsNotNone(wrapped_if, "If statement should be wrapped")
+        self.assertIsInstance(wrapped_if, ast.If)
+        self.assertEqual(len(wrapped_if.body), 2, "If statement body should be preserved")
+    
+    def test_nested_with_statements_preserved_in_metadata(self):
+        """Test that With statements created by inner wrappers are preserved when processing outer wrappers."""
+        replacer = DynamicReplacer(
+            _fullname="test.nested_with",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                # Inner wrapper
+                {
+                    'function': 'test_method',
+                    'start_line': 12,
+                    'end_line': 14,
+                    'context_class': 'profiler.InnerContext',
+                    'context_values': [{'name': 'name', 'value': 'inner', 'type': 'literal'}]
+                },
+                # Outer wrapper
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 20,
+                    'context_class': 'profiler.OuterContext',
+                    'context_values': []
+                }
+            ]
+        )
+        
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="a", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="b", ctx=ast.Store())],
+                    value=ast.Constant(value=2),
+                    lineno=12
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="c", ctx=ast.Store())],
+                    value=ast.Constant(value=3),
+                    lineno=14
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="d", ctx=ast.Store())],
+                    value=ast.Constant(value=4),
+                    lineno=20
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Verify structure: should have outer wrapper containing inner wrapper
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        self.assertEqual(len(non_import_stmts), 1)
+        
+        outer_with = non_import_stmts[0]
+        self.assertIsInstance(outer_with, ast.With)
+        self.assertEqual(outer_with.items[0].context_expr.func.id, "OuterContext")
+        
+        # Inside outer wrapper, should have inner wrapper
+        inner_with_stmts = [stmt for stmt in outer_with.body if isinstance(stmt, ast.With)]
+        self.assertEqual(len(inner_with_stmts), 1, "Should have one inner wrapper")
+        
+        inner_with = inner_with_stmts[0]
+        self.assertEqual(inner_with.items[0].context_expr.func.id, "InnerContext")
+        
+        # Verify inner wrapper contains the correct statements
+        inner_body = inner_with.body
+        self.assertEqual(len(inner_body), 2, "Inner wrapper should contain 2 statements")
+    
+    def test_compound_statements_with_nested_bodies(self):
+        """Test that compound statements with nested bodies (like If with For inside) are handled correctly."""
+        replacer = DynamicReplacer(
+            _fullname="test.nested_compound",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 25,
+                    'context_class': 'profiler.OuterContext',
+                    'context_values': []
+                },
+                {
+                    'function': 'test_method',
+                    'start_line': 15,
+                    'end_line': 18,
+                    'context_class': 'profiler.InnerContext',
+                    'context_values': [{'name': 'name', 'value': 'loop', 'type': 'literal'}]
+                }
+            ]
+        )
+        
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.If(
+                    test=ast.Name(id="condition", ctx=ast.Load()),
+                    body=[
+                        # Create For loop with explicit end_lineno so it spans lines 15-18
+                        (for_loop := ast.For(
+                            target=ast.Name(id="i", ctx=ast.Store()),
+                            iter=ast.Call(func=ast.Name(id="range", ctx=ast.Load()), args=[ast.Constant(value=5)], keywords=[]),
+                            body=[
+                                ast.Assign(
+                                    targets=[ast.Name(id="y", ctx=ast.Store())],
+                                    value=ast.Constant(value=17),
+                                    lineno=16
+                                ),
+                                ast.Assign(
+                                    targets=[ast.Name(id="y", ctx=ast.Store())],
+                                    value=ast.Constant(value=18),
+                                    lineno=17
+                                )
+                            ],
+                            orelse=[],
+                            lineno=15
+                        ))
+                    ],
+                    orelse=[],
+                    lineno=12
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="z", ctx=ast.Store())],
+                    value=ast.Constant(value=3),
+                    lineno=25
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        # Set end_lineno explicitly so the For loop spans lines 15-18
+        for_loop.end_lineno = 18
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Verify structure
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        self.assertEqual(len(non_import_stmts), 1)
+        
+        outer_with = non_import_stmts[0]
+        self.assertIsInstance(outer_with, ast.With)
+        
+        # Verify If statement is preserved
+        if_stmts = [stmt for stmt in outer_with.body if isinstance(stmt, ast.If)]
+        self.assertEqual(len(if_stmts), 1, "If statement should be preserved")
+        
+        if_stmt = if_stmts[0]
+        # Verify For loop inside If is wrapped
+        for_stmts = [stmt for stmt in if_stmt.body if isinstance(stmt, ast.With)]
+        self.assertEqual(len(for_stmts), 1, "For loop should be wrapped by inner wrapper")
+        
+        inner_with = for_stmts[0]
+        self.assertEqual(inner_with.items[0].context_expr.func.id, "InnerContext")
+        
+        # Verify For loop is inside the inner wrapper
+        for_loops = [stmt for stmt in inner_with.body if isinstance(stmt, ast.For)]
+        self.assertEqual(len(for_loops), 1, "For loop should be inside inner wrapper")
+    
+    def test_try_except_finally_in_metadata(self):
+        """Test that Try statements with except and finally clauses are correctly handled in metadata."""
+        replacer = DynamicReplacer(
+            _fullname="test.try_except",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 10,
+                    'end_line': 30,
+                    'context_class': 'profiler.TryContext',
+                    'context_values': []
+                }
+            ]
+        )
+        
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.Try(
+                    body=[
+                        ast.Assign(
+                            targets=[ast.Name(id="y", ctx=ast.Store())],
+                            value=ast.Constant(value=2),
+                            lineno=13
+                        )
+                    ],
+                    handlers=[
+                        ast.ExceptHandler(
+                            type=ast.Name(id="Exception", ctx=ast.Load()),
+                            name=None,
+                            body=[
+                                ast.Pass(lineno=16)
+                            ]
+                        )
+                    ],
+                    orelse=[
+                        ast.Pass(lineno=18)
+                    ],
+                    finalbody=[
+                        ast.Pass(lineno=20)
+                    ],
+                    lineno=12
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="z", ctx=ast.Store())],
+                    value=ast.Constant(value=3),
+                    lineno=30
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Verify Try statement is preserved
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        self.assertEqual(len(non_import_stmts), 1)
+        
+        outer_with = non_import_stmts[0]
+        self.assertIsInstance(outer_with, ast.With)
+        
+        # Verify Try statement is inside wrapper
+        try_stmts = [stmt for stmt in outer_with.body if isinstance(stmt, ast.Try)]
+        self.assertEqual(len(try_stmts), 1, "Try statement should be preserved")
+        
+        try_stmt = try_stmts[0]
+        # Verify all clauses are preserved
+        self.assertEqual(len(try_stmt.body), 1, "Try body should be preserved")
+        self.assertEqual(len(try_stmt.handlers), 1, "Except handler should be preserved")
+        self.assertEqual(len(try_stmt.orelse), 1, "Else clause should be preserved")
+        self.assertEqual(len(try_stmt.finalbody), 1, "Finally clause should be preserved")
+    
+    def test_partial_lines_inside_compound_statement(self):
+        """Test that wrapping only some lines inside a compound statement wraps only those lines, not the entire compound statement.
+        
+        This tests the fix for the bug where highlighting partial lines inside a compound statement
+        (like lines 16-17 inside a For loop spanning 15-20) would incorrectly wrap the entire
+        compound statement instead of just the highlighted lines.
+        """
+        replacer = DynamicReplacer(
+            _fullname="test.partial_compound",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 16,
+                    'end_line': 17,
+                    'context_class': 'profiler.PartialContext',
+                    'context_values': [{'name': 'name', 'value': 'partial', 'type': 'literal'}]
+                }
+            ]
+        )
+        
+        # Create a For loop spanning lines 15-20, but only wrap lines 16-17
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                (for_loop := ast.For(
+                    target=ast.Name(id="i", ctx=ast.Store()),
+                    iter=ast.Call(func=ast.Name(id="range", ctx=ast.Load()), args=[ast.Constant(value=5)], keywords=[]),
+                    body=[
+                        ast.Assign(
+                            targets=[ast.Name(id="y", ctx=ast.Store())],
+                            value=ast.Constant(value=1),
+                            lineno=16  # This should be wrapped
+                        ),
+                        ast.Assign(
+                            targets=[ast.Name(id="z", ctx=ast.Store())],
+                            value=ast.Constant(value=2),
+                            lineno=17  # This should be wrapped
+                        ),
+                        ast.Assign(
+                            targets=[ast.Name(id="w", ctx=ast.Store())],
+                            value=ast.Constant(value=3),
+                            lineno=18  # This should NOT be wrapped
+                        ),
+                        ast.Assign(
+                            targets=[ast.Name(id="v", ctx=ast.Store())],
+                            value=ast.Constant(value=4),
+                            lineno=19  # This should NOT be wrapped
+                        ),
+                    ],
+                    orelse=[],
+                    lineno=15
+                )),
+                ast.Assign(
+                    targets=[ast.Name(id="final", ctx=ast.Store())],
+                    value=ast.Constant(value=5),
+                    lineno=25
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+        
+        # Set end_lineno so For loop spans lines 15-20
+        for_loop.end_lineno = 20
+        
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+        
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+        
+        # Verify structure: should have For loop, not wrapped entirely
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+        
+        # Find the For loop
+        for_stmt = None
+        for stmt in non_import_stmts:
+            if isinstance(stmt, ast.For):
+                for_stmt = stmt
+                break
+        
+        self.assertIsNotNone(for_stmt, "For loop should be preserved (not wrapped entirely)")
+        self.assertIsInstance(for_stmt, ast.For)
+        
+        # Verify that only lines 16-17 are wrapped inside the For loop
+        # The For loop body should contain a With statement wrapping lines 16-17
+        # and unwrapped statements for lines 18-19
+        for_body = for_stmt.body
+        
+        # Should have a With statement (wrapping lines 16-17) and unwrapped statements (18-19)
+        with_stmts = [stmt for stmt in for_body if isinstance(stmt, ast.With)]
+        self.assertEqual(len(with_stmts), 1, "Should have one wrapper for lines 16-17")
+        
+        # Verify the wrapper contains the two assignments from lines 16-17
+        wrapper = with_stmts[0]
+        self.assertEqual(wrapper.items[0].context_expr.func.id, "PartialContext")
+        wrapped_body = wrapper.body
+        self.assertEqual(len(wrapped_body), 2, "Wrapper should contain 2 statements (lines 16-17)")
+        
+        # Verify unwrapped statements exist (lines 18-19)
+        unwrapped_assigns = [stmt for stmt in for_body if isinstance(stmt, ast.Assign)]
+        self.assertEqual(len(unwrapped_assigns), 2, "Should have 2 unwrapped assignments (lines 18-19)")
+        
+        # Verify the For loop itself is NOT wrapped
+        top_level_withs = [stmt for stmt in non_import_stmts if isinstance(stmt, ast.With)]
+        self.assertEqual(len(top_level_withs), 0, "For loop should not be wrapped at top level")
+
 if __name__ == '__main__':
     unittest.main()

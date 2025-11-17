@@ -1,9 +1,29 @@
 """
-Basic example illustrating the use of trace markers to profile a model.
+Local profiling example for PyTorch neural network training with nCompass SDK integration.
 
-Prerequisites:
-    pip install ncompass torch
+This example demonstrates how to:
+1. Integrate nCompass SDK for tracing and instrumentation
+2. Train a simple neural network with instrumentation
+3. Profile GPU-accelerated PyTorch code locally
+4. Use custom profiling targets configuration
+5. Save profiling traces locally
+
+Based on the Modal torch_profiling example but runs entirely locally.
+
+Usage:
+    python modal_replica.py
+    python modal_replica.py --label "baseline" --steps 5
+    python modal_replica.py --print-rows 20
 """
+
+from pathlib import Path
+from typing import Optional, Dict, Any
+import torch
+import torch.profiler
+import json
+import logging
+from datetime import datetime
+from uuid import uuid4
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -11,10 +31,15 @@ load_dotenv()
 from ncompass.trace.core.rewrite import enable_rewrites
 from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
-import logging
-import os
-from config import config
-from model import run_model_inference
+from ncompass.trace.converters import link_user_annotation_to_kernels
+from utils import (
+    count_events_by_category,
+    print_event_statistics,
+    calculate_replacement_sets,
+    filter_replaced_events,
+    print_replacement_statistics,
+)
+from simplenet import SimpleNet, train_simple_network
 
 logger.setLevel(logging.DEBUG)
 
@@ -22,32 +47,33 @@ logger.setLevel(logging.DEBUG)
 # This configuration tells ncompass to automatically wrap specific code regions with
 # profiling contexts that will appear in PyTorch profiler traces.
 #
-# Structure:
-#   - Top-level key ("model") is a target name/namespace
-#   - "func_line_range_wrappings" specifies which functions and line ranges to wrap
-#
-# Each wrapping entry:
-#   - "function": Name of the function to instrument (must match the function name in model.py)
-#   - "start_line"/"end_line": Line range within the function to wrap with profiling context
-#   - "context_class": The profiling context class to use (TorchRecordContext for PyTorch profiling)
-#   - "context_values": Metadata to attach to the trace marker (e.g., custom name for identification)
-#
-# In this example, we're wrapping lines 52-54 of the matrix_multiply function in model.py
-# with a custom marker named "my-custom-marker-name". This will create a visible region
-# in the PyTorch profiler trace, making it easier to identify and analyze this specific
-# computation in the profiling output.
+# IMPORTANT: The target module name "simplenet" must match the imported module.
+# The rewriter instruments code in imported modules, not the current module.
 PROFILING_TARGETS = {
-    "model": {
+    "simplenet": {
         "func_line_range_wrappings": [
             {
-                "function": "matrix_multiply",
-                "start_line": 52,
-                "end_line": 54,
+                "function": "train_simple_network",
+                "start_line": 68,
+                "end_line": 68,
                 "context_class": "ncompass.trace.profile.torch.TorchRecordContext",
                 "context_values": [
                     {
                         "name": "name",
-                        "value": "my-custom-marker-name",
+                        "value": "forward_pass",
+                        "type": "literal"
+                    },
+                ],
+            },
+            {
+                "function": "train_simple_network",
+                "start_line": 73,
+                "end_line": 73,
+                "context_class": "ncompass.trace.profile.torch.TorchRecordContext",
+                "context_values": [
+                    {
+                        "name": "name",
+                        "value": "backward_pass",
                         "type": "literal"
                     },
                 ],
@@ -56,35 +82,272 @@ PROFILING_TARGETS = {
     }
 }
 
-def main():
-    """Main iterative profiling workflow."""
-    # Build the rewrite configuration from PROFILING_TARGETS
-    # This tells ncompass which code to instrument before execution
-    config = {"targets": PROFILING_TARGETS}
+def profile(
+    label: Optional[str] = None,
+    steps: int = 3,
+    schedule: Optional[Dict[str, int]] = None,
+    record_shapes: bool = True,
+    profile_memory: bool = False,
+    with_stack: bool = True,
+    print_rows: int = 0,
+    profiling_targets: Optional[Dict[str, Any]] = None,
+    trace_dir: str = ".traces",
+    link_annotations: bool = True,
+    verbose: bool = False,
+    **kwargs,
+):
+    """
+    Profile the neural network training using PyTorch's built-in profiler.
     
-    # Enable code rewriting/instrumentation based on the configuration
-    # This will modify the code at runtime to add trace markers
-    enable_rewrites(config=RewriteConfig.from_dict(config))
+    Args:
+        label: Optional label for the profiling run
+        steps: Number of profiling steps (default: 3)
+        schedule: Custom profiling schedule (default: wait=1, warmup=1, active=steps-2)
+        record_shapes: Record tensor shapes during profiling
+        profile_memory: Profile memory usage
+        with_stack: Include Python stack traces
+        print_rows: Number of rows to print in summary table
+        profiling_targets: Custom profiling targets config (uses PROFILING_TARGETS by default)
+        trace_dir: Directory to save traces to
+        **kwargs: Arguments to pass to train_simple_network (epochs, hidden_size)
+    """
+    logger.info("Starting profiling session...")
     
-    # Run the model inference with PyTorch profiler enabled
-    # The profiler will capture execution traces including our custom markers
-    run_model_inference(enable_profiler=True)
+    # Initialize nCompass SDK with profiling targets
+    if profiling_targets is None:
+        profiling_targets = PROFILING_TARGETS
+    
+    rewrite_config = {"targets": profiling_targets}
+    logger.info("Enabling nCompass rewrites...")
+    # enable_rewrites(config=RewriteConfig.from_dict(rewrite_config))
+    
+    # Create output directory for this profiling run
+    function_name = "train_simple_network"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = str(uuid4())[:8]
+    
+    output_dir = Path(trace_dir) / (
+        function_name + (f"_{label}" if label else "") + f"_{timestamp}_{run_id}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Output directory: {output_dir}")
+    
+    # Set up profiling schedule
+    if schedule is None:
+        if steps < 3:
+            raise ValueError("Steps must be at least 3 when using default schedule")
+        schedule = {"wait": 1, "warmup": 1, "active": steps - 2, "repeat": 0}
+    schedule_obj = torch.profiler.schedule(**schedule)
+    
+    # Determine profiler activities based on device availability
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if torch.cuda.is_available():
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
+        logger.info("CUDA profiling enabled")
+    
+    # Run profiling
+    logger.info(f"Running profiling for {steps} steps...")
+    with torch.profiler.profile(
+        activities=activities,
+        schedule=schedule_obj,
+        record_shapes=record_shapes,
+        profile_memory=profile_memory,
+        with_stack=with_stack,
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(output_dir)),
+    ) as prof:
+        for step_idx in range(steps):
+            logger.info(f"Profiling step {step_idx + 1}/{steps}")
+            result = train_simple_network(**kwargs)
+            prof.step()
+    
+    logger.info("Profiling complete!")
+    
+    # Print summary table if requested
+    if print_rows:
+        logger.info(f"\nTop {print_rows} operations by {'CUDA' if torch.cuda.is_available() else 'CPU'} time:")
+        print(
+            prof.key_averages().table(
+                sort_by="cuda_time_total" if torch.cuda.is_available() else "cpu_time_total",
+                row_limit=print_rows
+            )
+        )
+    
+    # Find the trace file
+    trace_files = list(output_dir.glob("**/*.pt.trace.json"))
+    if trace_files:
+        trace_path = sorted(
+            trace_files,
+            key=lambda pth: pth.stat().st_mtime,
+            reverse=True,
+        )[0]
+        logger.info(f"Trace saved to: {trace_path}")
+        
+        # Link user_annotation events to kernels if requested
+        if link_annotations:
+            logger.info("Linking user_annotation events to kernels...")
+            try:
+                new_events = link_user_annotation_to_kernels(trace_path)
+                
+                if new_events:
+                    # Load the original trace
+                    with open(trace_path, 'r') as f:
+                        trace_data = json.load(f)
+                    
+                    # Handle both array and object formats
+                    if isinstance(trace_data, list):
+                        trace_events = trace_data
+                    elif isinstance(trace_data, dict) and "traceEvents" in trace_data:
+                        trace_events = trace_data["traceEvents"]
+                    else:
+                        trace_events = []
+                    
+                    # Calculate replacement sets
+                    both_exist_names, ua_only_names = calculate_replacement_sets(new_events, trace_events)
+                    
+                    # Filter replaced events
+                    filtered_events, removed_gpu_ua_count, removed_ua_count = filter_replaced_events(
+                        trace_events, both_exist_names, ua_only_names
+                    )
+                    
+                    # Add new events
+                    linked_events = filtered_events + new_events
+                    
+                    # Write back to the same file
+                    with open(trace_path, 'w') as f:
+                        json.dump(linked_events, f, indent=2)
+                    
+                    logger.info(f"Linked {len(new_events)} user_annotation events to kernels")
+                    
+                    # Only print statistics if verbose
+                    if verbose:
+                        # Count events for statistics
+                        counts = count_events_by_category(trace_events)
+                        print_event_statistics(counts, use_logger=True)
+                        
+                        print_replacement_statistics(
+                            removed_gpu_ua_count,
+                            removed_ua_count,
+                            new_events,
+                            both_exist_names,
+                            ua_only_names,
+                            use_logger=True
+                        )
+                    
+                    logger.info(f"Trace updated: {trace_path}")
+                else:
+                    logger.info("No new linked events created")
+            except Exception as e:
+                logger.warning(f"Failed to link user_annotation events: {e}")
+                logger.warning("Original trace file preserved")
+        
+        return trace_path, result
+    else:
+        logger.warning("No trace files found!")
+        return None, result
+
+
+def main(
+    label: Optional[str] = None,
+    steps: int = 3,
+    record_shapes: bool = True,
+    profile_memory: bool = False,
+    with_stack: bool = True,
+    print_rows: int = 10,
+    trace_dir: str = ".traces",
+    epochs: int = 10,
+    hidden_size: int = 512,
+    custom_config_path: Optional[str] = None,
+    no_link: bool = False,
+    verbose: bool = False,
+):
+    """
+    Run profiling from the command line.
+    
+    Args:
+        label: Optional label for the profiling run
+        steps: Number of profiling steps
+        record_shapes: Record tensor shapes during profiling
+        profile_memory: Profile memory usage
+        with_stack: Include Python stack traces
+        print_rows: Number of rows to print in summary table
+        trace_dir: Directory to save traces to
+        epochs: Number of training epochs per profiling step
+        hidden_size: Hidden layer size for the neural network
+        custom_config_path: Path to custom profiling targets JSON config
+    
+    Example usage:
+        python modal_replica.py
+        python modal_replica.py --label "baseline" --steps 5
+        python modal_replica.py --print-rows 20 --epochs 20
+        python modal_replica.py --hidden-size 1024 --custom-config-path my_config.json
+    """
+    # Load custom profiling targets if provided
+    profiling_targets = None
+    if custom_config_path:
+        logger.info(f"Loading custom config from: {custom_config_path}")
+        with open(custom_config_path, 'r') as f:
+            profiling_targets = json.load(f)
+    
+    # Run profiling
+    trace_path, result = profile(
+        label=label,
+        steps=steps,
+        record_shapes=record_shapes,
+        profile_memory=profile_memory,
+        with_stack=with_stack,
+        print_rows=print_rows,
+        profiling_targets=profiling_targets,
+        trace_dir=trace_dir,
+        epochs=epochs,
+        hidden_size=hidden_size,
+        link_annotations=not no_link,
+        verbose=verbose,
+    )
+    
+    if trace_path:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Profiling session complete!")
+        logger.info(f"Trace location: {trace_path}")
+        logger.info(f"Final loss: {result.get('final_loss', 'N/A')}")
+        logger.info(f"Epochs: {result.get('epochs', 'N/A')}")
+        logger.info(f"{'='*60}")
+    
+    return trace_path, result
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--clean", action="store_true", help="Clean up all traces and summaries")
+    
+    parser = argparse.ArgumentParser(
+        description="Profile PyTorch neural network training with nCompass SDK integration"
+    )
+    parser.add_argument("--label", type=str, default=None, help="Label for the profiling run")
+    parser.add_argument("--steps", type=int, default=3, help="Number of profiling steps")
+    parser.add_argument("--record-shapes", action="store_true", default=True, help="Record tensor shapes")
+    parser.add_argument("--profile-memory", action="store_true", help="Profile memory usage")
+    parser.add_argument("--with-stack", action="store_true", default=True, help="Include Python stack traces")
+    parser.add_argument("--print-rows", type=int, default=10, help="Number of rows to print in summary")
+    parser.add_argument("--trace-dir", type=str, default=".traces", help="Directory to save traces")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--hidden-size", type=int, default=512, help="Hidden layer size")
+    parser.add_argument("--custom-config-path", type=str, default=None, help="Path to custom profiling config JSON")
+    parser.add_argument("--no-link", action="store_true", help="Disable linking user_annotation events to kernels (linking is enabled by default)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed statistics when linking annotations")
+    
     args = parser.parse_args()
     
-    # Optional cleanup: remove previous profiling traces and session data
-    if args.clean:
-        import shutil
-        if os.path.exists(config.torch_logs_dir):
-            shutil.rmtree(config.torch_logs_dir)
-        if os.path.exists(config.profiling_session_dir):
-            shutil.rmtree(config.profiling_session_dir)
-        logger.info("Cleaned up all traces and summaries")
-    
-    # Run the main profiling workflow
-    main()
+    main(
+        label=args.label,
+        steps=args.steps,
+        record_shapes=args.record_shapes,
+        profile_memory=args.profile_memory,
+        with_stack=args.with_stack,
+        print_rows=args.print_rows,
+        trace_dir=args.trace_dir,
+        epochs=args.epochs,
+        hidden_size=args.hidden_size,
+        custom_config_path=args.custom_config_path,
+        no_link=args.no_link,
+        verbose=args.verbose,
+    )
+
