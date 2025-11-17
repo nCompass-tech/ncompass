@@ -64,16 +64,13 @@ def train_simple_network(epochs=10, hidden_size=512):
     # Training loop
     for epoch in range(epochs):
         # Forward pass
-        with torch.profiler.record_function("forward_pass"):
-            outputs = model(X)
+        outputs = model(X)
         loss = criterion(outputs, y)
         
         # Backward pass
         optimizer.zero_grad()
-        with torch.profiler.record_function("backward_pass"):
-            loss.backward()
-        with torch.profiler.record_function("optimizer_step_bam"):
-            optimizer.step()
+        loss.backward()
+        optimizer.step()
         
         if (epoch + 1) % max(1, epochs // 10) == 0 or epoch == 0:
             logger.info(f"Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}")
