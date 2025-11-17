@@ -218,6 +218,12 @@ python main.py --custom-config-path my_config.json
 
 The JSON should follow the same structure as `PROFILING_TARGETS` in `main.py`, which matches the format used by the ncprof VSCode extension. See the [ncprof quick start guide](https://docs.ncompass.tech/ncprof/quick-start) for more details on the configuration format.
 
+## Running a test with the local version of the SDK
+```bash
+Run ./setup_local_test_env.sh
+```
+This will create a symlink of the SDK here. Uninstall ncompass from whatever env (docker / venv)
+you're running in.
 
 ## Additional Resources
 - [ncprof VSCode Extension Documentation](https://docs.ncompass.tech/ncprof/quick-start)

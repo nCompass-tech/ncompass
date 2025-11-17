@@ -16,6 +16,7 @@ Usage:
     python modal_replica.py --print-rows 20
 """
 
+import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 import torch
@@ -25,20 +26,10 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from ncompass.trace.core.rewrite import enable_rewrites
 from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.converters import link_user_annotation_to_kernels
-from utils import (
-    count_events_by_category,
-    print_event_statistics,
-    calculate_replacement_sets,
-    filter_replaced_events,
-    print_replacement_statistics,
-)
 from simplenet import SimpleNet, train_simple_network
 
 logger.setLevel(logging.DEBUG)
@@ -46,41 +37,6 @@ logger.setLevel(logging.DEBUG)
 # PROFILING_TARGETS defines which functions should be instrumented with trace markers.
 # This configuration tells ncompass to automatically wrap specific code regions with
 # profiling contexts that will appear in PyTorch profiler traces.
-#
-# IMPORTANT: The target module name "simplenet" must match the imported module.
-# The rewriter instruments code in imported modules, not the current module.
-PROFILING_TARGETS = {
-    "simplenet": {
-        "func_line_range_wrappings": [
-            {
-                "function": "train_simple_network",
-                "start_line": 68,
-                "end_line": 68,
-                "context_class": "ncompass.trace.profile.torch.TorchRecordContext",
-                "context_values": [
-                    {
-                        "name": "name",
-                        "value": "forward_pass",
-                        "type": "literal"
-                    },
-                ],
-            },
-            {
-                "function": "train_simple_network",
-                "start_line": 73,
-                "end_line": 73,
-                "context_class": "ncompass.trace.profile.torch.TorchRecordContext",
-                "context_values": [
-                    {
-                        "name": "name",
-                        "value": "backward_pass",
-                        "type": "literal"
-                    },
-                ],
-            }
-        ]
-    }
-}
 
 def profile(
     label: Optional[str] = None,
@@ -114,12 +70,13 @@ def profile(
     logger.info("Starting profiling session...")
     
     # Initialize nCompass SDK with profiling targets
-    if profiling_targets is None:
-        profiling_targets = PROFILING_TARGETS
-    
-    rewrite_config = {"targets": profiling_targets}
-    logger.info("Enabling nCompass rewrites...")
-    # enable_rewrites(config=RewriteConfig.from_dict(rewrite_config))
+    rewrite_config = \
+            Path(f"{os.getcwd()}/.cache/ncompass/profiles/.default/.default/current/config.json")
+    if rewrite_config.exists():
+        logger.info("Enabling nCompass rewrites...")
+        with rewrite_config.open("r") as f:
+            cfg = json.load(f)
+            enable_rewrites(config=RewriteConfig.from_dict(cfg))
     
     # Create output directory for this profiling run
     function_name = "train_simple_network"
@@ -186,56 +143,12 @@ def profile(
         if link_annotations:
             logger.info("Linking user_annotation events to kernels...")
             try:
-                new_events = link_user_annotation_to_kernels(trace_path)
+                linked_events = link_user_annotation_to_kernels(str(trace_path), verbose)
+                # Write the complete linked events back to the trace file
+                with open(trace_path, 'w') as f:
+                    json.dump(linked_events, f, indent=2)
                 
-                if new_events:
-                    # Load the original trace
-                    with open(trace_path, 'r') as f:
-                        trace_data = json.load(f)
-                    
-                    # Handle both array and object formats
-                    if isinstance(trace_data, list):
-                        trace_events = trace_data
-                    elif isinstance(trace_data, dict) and "traceEvents" in trace_data:
-                        trace_events = trace_data["traceEvents"]
-                    else:
-                        trace_events = []
-                    
-                    # Calculate replacement sets
-                    both_exist_names, ua_only_names = calculate_replacement_sets(new_events, trace_events)
-                    
-                    # Filter replaced events
-                    filtered_events, removed_gpu_ua_count, removed_ua_count = filter_replaced_events(
-                        trace_events, both_exist_names, ua_only_names
-                    )
-                    
-                    # Add new events
-                    linked_events = filtered_events + new_events
-                    
-                    # Write back to the same file
-                    with open(trace_path, 'w') as f:
-                        json.dump(linked_events, f, indent=2)
-                    
-                    logger.info(f"Linked {len(new_events)} user_annotation events to kernels")
-                    
-                    # Only print statistics if verbose
-                    if verbose:
-                        # Count events for statistics
-                        counts = count_events_by_category(trace_events)
-                        print_event_statistics(counts, use_logger=True)
-                        
-                        print_replacement_statistics(
-                            removed_gpu_ua_count,
-                            removed_ua_count,
-                            new_events,
-                            both_exist_names,
-                            ua_only_names,
-                            use_logger=True
-                        )
-                    
-                    logger.info(f"Trace updated: {trace_path}")
-                else:
-                    logger.info("No new linked events created")
+                logger.info(f"Trace updated: {trace_path}")
             except Exception as e:
                 logger.warning(f"Failed to link user_annotation events: {e}")
                 logger.warning("Original trace file preserved")
