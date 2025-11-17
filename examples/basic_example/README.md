@@ -13,11 +13,24 @@ This example demonstrates how to profile PyTorch neural network training using t
 ## Prerequisites
 
 - Python 3.8+
-- PyTorch (with CUDA support recommended)
-- nCompass SDK installed
 - CUDA-capable GPU (optional, but recommended for best results)
 
 ## Quick Start
+
+### Installation
+#### Without Docker
+```bash
+python -m venv venv-basic-example
+source venv-basic-example/bin/activate
+pip install uv 
+uv pip install -r requirements.txt
+```
+
+#### With Docker
+```bash
+python nc_pkg.py --build --run
+# This puts you in an envi
+```
 
 ### Basic Profiling
 
