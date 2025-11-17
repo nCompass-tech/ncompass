@@ -214,3 +214,5 @@ reqs/
 nc_reqs.txt
 
 publish/config.yaml
+
+.traces/
