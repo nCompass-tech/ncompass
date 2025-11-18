@@ -87,19 +87,6 @@ def extract_thread_names(conn: sqlite3.Connection) -> dict[int, str]:
     return tid_to_name
 
 
-def resolve_device_id(pid: int, device_map: dict[int, int]) -> Optional[int]:
-    """Get device ID for a PID.
-    
-    Args:
-        pid: Process ID
-        device_map: Mapping from PID to device ID
-        
-    Returns:
-        Device ID or None if not found
-    """
-    return device_map.get(pid)
-
-
 def get_all_devices(conn: sqlite3.Connection) -> set[int]:
     """Get all device IDs present in the trace.
     

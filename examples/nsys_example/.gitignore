@@ -1,3 +1,4 @@
 *.json
 *.sqlite
 ncompass
+*.nsys-rep

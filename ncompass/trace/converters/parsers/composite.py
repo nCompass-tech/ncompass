@@ -6,14 +6,14 @@ from typing import Any
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
 from ..mapping import decompose_global_tid
-from .base import BaseParser
+from .base import BaseParser, DefaultParserImpl
 
 
-class CompositeParser(BaseParser):
+class CompositeParser(DefaultParserImpl):
     """Parser for COMPOSITE_EVENTS table."""
     
     def __init__(self):
-        super().__init__("COMPOSITE_EVENTS")
+        DefaultParserImpl.__init__(self, "COMPOSITE_EVENTS")
     
     def parse(
         self,
@@ -31,7 +31,7 @@ class CompositeParser(BaseParser):
         events = []
         
         conn.row_factory = sqlite3.Row
-        query = "SELECT * FROM COMPOSITE_EVENTS"
+        query = f"SELECT * FROM {self.table_name}"
         
         # Get column names to check what's available
         cursor = conn.execute(query)

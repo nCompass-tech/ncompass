@@ -46,7 +46,15 @@ def run_container(tag:str, name:str, auto_exec=True):
         "--ipc=host",
         "--gpus", "all",
         "-v", f"{current_dir}:/workspace",
-        "-v", f"{current_dir}/.cache:/root/.cache",
+        "-v", f"{current_dir}/.cache:/root/.cache"]
+
+    ncompass_dir = Path(f"./ncompass")
+    local_ncompass_dir = False
+    if ncompass_dir.exists():
+        run_cmd += ["-v", f"{current_dir}/ncompass:/workspace/ncompass"]
+        local_ncompass_dir = True
+    
+    run_cmd += [
         "--name", name,
         "-e", f"HOST_UID={os.getuid()}",
         "-e", f"HOST_GID={os.getgid()}",
@@ -59,10 +67,15 @@ def run_container(tag:str, name:str, auto_exec=True):
     subprocess.run(run_cmd, check=True)
 
     if auto_exec:
+        if local_ncompass_dir:
+            print(f"Uninstall pip installed ncompass SDK as local SDK found")
+            subprocess.run(["docker", "exec", name, "/bin/bash", "-c", "uv pip uninstall ncompass"])
         print(f"Executing interactive shell in container '{name}'...")
         subprocess.run(["docker", "exec", "-it", name, "/bin/bash"])
     else:
         print(f"\nTo connect to the container, run: docker exec -it {name} /bin/bash")
+        if local_ncompass_dir:
+            print(f"\nSince the local ncompass SDK is mounted, run `uv pip uninstall ncompass`")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process build and run options.')

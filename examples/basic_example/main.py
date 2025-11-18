@@ -172,6 +172,7 @@ def main(
     custom_config_path: Optional[str] = None,
     no_link: bool = False,
     verbose: bool = False,
+    link_only: Optional[str] = None,
 ):
     """
     Run profiling from the command line.
@@ -187,13 +188,48 @@ def main(
         epochs: Number of training epochs per profiling step
         hidden_size: Hidden layer size for the neural network
         custom_config_path: Path to custom profiling targets JSON config
+        link_only: If provided, only link the specified trace file and exit
     
     Example usage:
         python modal_replica.py
         python modal_replica.py --label "baseline" --steps 5
         python modal_replica.py --print-rows 20 --epochs 20
         python modal_replica.py --hidden-size 1024 --custom-config-path my_config.json
+        python modal_replica.py --link-only path/to/trace.pt.trace.json
     """
+    # Handle link-only mode
+    if link_only:
+        input_path = Path(link_only)
+        if not input_path.exists():
+            logger.error(f"Trace file not found: {input_path}")
+            return None, None
+        
+        if not input_path.name.endswith('.pt.trace.json'):
+            logger.error(f"Input file must end with .pt.trace.json, got: {input_path.name}")
+            return None, None
+        
+        logger.info(f"Linking user_annotation events to kernels in: {input_path}")
+        try:
+            linked_events = link_user_annotation_to_kernels(str(input_path), verbose)
+            
+            # Generate output filename by replacing .pt.trace.json with .linked.pt.trace.json
+            output_path = input_path.parent / input_path.name.replace('.pt.trace.json', '.linked.pt.trace.json')
+            
+            # Write the linked events to the new file
+            with open(output_path, 'w') as f:
+                json.dump(linked_events, f, indent=2)
+            
+            logger.info(f"Linked trace saved to: {output_path}")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Link operation complete!")
+            logger.info(f"Output file: {output_path}")
+            logger.info(f"{'='*60}")
+            
+            return str(output_path), None
+        except Exception as e:
+            logger.error(f"Failed to link user_annotation events: {e}")
+            return None, None
+    
     # Load custom profiling targets if provided
     profiling_targets = None
     if custom_config_path:
@@ -246,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--custom-config-path", type=str, default=None, help="Path to custom profiling config JSON")
     parser.add_argument("--no-link", action="store_true", help="Disable linking user_annotation events to kernels (linking is enabled by default)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed statistics when linking annotations")
+    parser.add_argument("--link-only", type=str, default=None, help="Only link the specified trace file (must end with .pt.trace.json) and output to .linked.pt.trace.json")
     
     args = parser.parse_args()
     
@@ -262,5 +299,6 @@ if __name__ == "__main__":
         custom_config_path=args.custom_config_path,
         no_link=args.no_link,
         verbose=args.verbose,
+        link_only=args.link_only,
     )
 

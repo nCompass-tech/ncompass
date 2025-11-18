@@ -3,6 +3,13 @@
 import sqlite3
 from typing import Any, Optional
 from collections import defaultdict
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+from ncompasslib.immutable import Immutable, mutate
+
+from ncompass.trace.infra.utils import logger
 
 from .models import ChromeTraceEvent, ConversionOptions
 from .schema import detect_available_tables, TableRegistry
@@ -19,27 +26,39 @@ from .parsers import (
     SchedParser,
     CompositeParser,
 )
-from .nvtx_kernel_linker import link_nvtx_to_kernels
+from .linker import link_nvtx_to_kernels
 
-class NsysToChromeTraceConverter:
+class NsysToChromeTraceConverter(Immutable):
     """Main converter class for nsys SQLite to Chrome Trace conversion."""
     
-    def __init__(self, sqlite_path: str, options: ConversionOptions | None = None):
+    # def __init__(self, sqlite_path: str, options: ConversionOptions | None = None):
+    def __init__(self):
         """Initialize converter.
         
         Args:
             sqlite_path: Path to input SQLite file
             options: Conversion options (defaults to all event types)
         """
-        self.sqlite_path = sqlite_path
-        self.options = options or ConversionOptions()
+        self.sqlite_path: str = ""
+        self.options: ConversionOptions | None = None or ConversionOptions()
         self.conn: sqlite3.Connection | None = None
         self.strings: dict[int, str] = {}
         self.device_map: dict[int, int] = {}
         self.thread_names: dict[int, str] = {}
         self.available_tables: set[str] = set()
+
+    @mutate
+    def set_sqlite_path(self, sqlite_path: str) -> Self:
+        self.sqlite_path = sqlite_path
+        return self
     
-    def __enter__(self):
+    @mutate
+    def set_options(self, options: ConversionOptions) -> Self:
+        self.options = options 
+        return self
+    
+    @mutate
+    def __enter__(self) -> Self:
         """Context manager entry."""
         self.conn = sqlite3.connect(self.sqlite_path)
         self.conn.row_factory = sqlite3.Row
@@ -195,8 +214,7 @@ class NsysToChromeTraceConverter:
                     events = [e for e in events if e.cat != "nvtx"]
                     events.extend(unmapped_nvtx_events)
             else:
-                import warnings
-                warnings.warn(
+                logger.warning(
                     "nvtx-kernel requested but requires kernel, cuda-api, and nvtx events. "
                     "Skipping nvtx-kernel events.",
                     UserWarning
@@ -282,6 +300,7 @@ class NsysToChromeTraceConverter:
         """
         return sorted(events, key=lambda e: (e.ts, e.pid, e.tid))
     
+    @mutate
     def convert(self) -> list[ChromeTraceEvent]:
         """Perform the conversion.
         
@@ -322,8 +341,12 @@ def convert_file(
         options: Conversion options
     """
     from .utils import write_chrome_trace
+
+    converter_ctx = NsysToChromeTraceConverter()\
+                        .set_sqlite_path(sqlite_path)\
+                        .set_options(options)
     
-    with NsysToChromeTraceConverter(sqlite_path, options) as converter:
+    with converter_ctx as converter:
         events = converter.convert()
         # Convert Pydantic models to dicts
         event_dicts = [event.to_dict() for event in events]
