@@ -6,24 +6,15 @@ from typing import Any, Optional
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
-from ..mapping import decompose_global_tid, resolve_device_id
-from .base import BaseParser
+from ..mapping import decompose_global_tid
+from .base import BaseParser, DefaultParserImpl
 
-def print_row(row: sqlite3.Row):
-    print("=" * 60)
-    print("Row contents:")
-    print("=" * 60)
-    for key in row.keys():
-        value = row[key]
-        value_type = type(value).__name__
-        value_repr = repr(value) if value is not None else "NULL"
-        print(f"  {key:15} = {value_repr:30} ({value_type})")
-
-class NVTXParser(BaseParser):
+class NVTXParser(DefaultParserImpl):
     """Parser for NVTX_EVENTS table."""
     
     def __init__(self):
-        super().__init__("NVTX_EVENTS")
+        DefaultParserImpl.__init__(self, "NVTX_EVENTS")
+        self.NVTX_PUSH_POP_EVENT_ID = 59
     
     def _build_filter_clause(self, event_prefix: Optional[list[str]]) -> str:
         """Build SQL WHERE clause for event prefix filtering."""
@@ -44,9 +35,9 @@ class NVTXParser(BaseParser):
         device_map: dict[int, int],
         thread_names: dict[int, str],
     ) -> list[ChromeTraceEvent]:
-        """Parse NVTX events.
+        f"""Parse NVTX events.
         
-        Focuses on eventType 59 (NvtxPushPopRange) which corresponds to
+        Focuses on eventType {self.NVTX_PUSH_POP_EVENT_ID} (NvtxPushPopRange) which corresponds to
         torch.cuda.nvtx.range APIs.
         """
         events = []
@@ -55,9 +46,9 @@ class NVTXParser(BaseParser):
         
         conn.row_factory = sqlite3.Row
         query = (
-            "SELECT start, end, text, textId, globalTid, eventType "
-            f"FROM NVTX_EVENTS "
-            f"WHERE eventType == 59{filter_clause}"
+            f"SELECT start, end, text, textId, globalTid, eventType "
+            f"FROM {self.table_name} "
+            f"WHERE eventType == {self.NVTX_PUSH_POP_EVENT_ID}{filter_clause}"
         )
 
         for row in conn.execute(query):
@@ -66,7 +57,7 @@ class NVTXParser(BaseParser):
                 continue
             
             pid, tid = decompose_global_tid(row["globalTid"])
-            device_id = resolve_device_id(pid, device_map)
+            device_id = device_map.get(pid)
             
             if device_id is None:
                 device_id = pid  # Fallback

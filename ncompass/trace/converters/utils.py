@@ -1,6 +1,7 @@
 """Utility functions for nsys2chrome conversion."""
 
 from typing import Any
+from .models import VALID_CHROME_TRACE_PHASES
 
 
 def ns_to_us(timestamp_ns: int) -> float:
@@ -34,12 +35,11 @@ def validate_chrome_trace(events: list[dict[str, Any]]) -> bool:
                 f"Event: {event}"
             )
         
-        # Validate phase type
-        valid_phases = {"X", "B", "E", "i", "n", "O", "C", "b", "e", "s", "t", "f", "P", "N", "M", "c"}
-        if event["ph"] not in valid_phases:
+        # Validate phase type using the shared constant
+        if event["ph"] not in VALID_CHROME_TRACE_PHASES:
             raise ValueError(
                 f"Event {i} has invalid phase '{event['ph']}'. "
-                f"Valid phases: {valid_phases}"
+                f"Valid phases: {sorted(VALID_CHROME_TRACE_PHASES)}"
             )
         
         # For 'X' events, duration should be present

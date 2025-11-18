@@ -6,14 +6,14 @@ from typing import Any
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
 from ..mapping import decompose_global_tid
-from .base import BaseParser
+from .base import BaseParser, DefaultParserImpl
 
 
-class SchedParser(BaseParser):
+class SchedParser(DefaultParserImpl):
     """Parser for SCHED_EVENTS table."""
     
     def __init__(self):
-        super().__init__("SCHED_EVENTS")
+        DefaultParserImpl.__init__(self, "SCHED_EVENTS")
     
     def parse(
         self,
@@ -31,7 +31,7 @@ class SchedParser(BaseParser):
         events = []
         
         conn.row_factory = sqlite3.Row
-        query = "SELECT start, cpu, isSchedIn, globalTid, threadState, threadBlock FROM SCHED_EVENTS"
+        query = f"SELECT start, cpu, isSchedIn, globalTid, threadState, threadBlock FROM {self.table_name}"
         
         for row in conn.execute(query):
             pid, tid = decompose_global_tid(row["globalTid"])
