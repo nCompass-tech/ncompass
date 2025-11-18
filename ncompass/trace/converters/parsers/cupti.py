@@ -5,15 +5,15 @@ from typing import Any
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
-from ..mapping import decompose_global_tid, resolve_device_id
-from .base import BaseParser
+from ..mapping import decompose_global_tid
+from .base import BaseParser, DefaultParserImpl
 
 
-class CUPTIKernelParser(BaseParser):
+class CUPTIKernelParser(DefaultParserImpl):
     """Parser for CUPTI_ACTIVITY_KIND_KERNEL table."""
     
     def __init__(self):
-        super().__init__("CUPTI_ACTIVITY_KIND_KERNEL")
+        DefaultParserImpl.__init__(self, "CUPTI_ACTIVITY_KIND_KERNEL")
     
     def parse(
         self,
@@ -27,7 +27,7 @@ class CUPTIKernelParser(BaseParser):
         events = []
         
         conn.row_factory = sqlite3.Row
-        for row in conn.execute("SELECT * FROM CUPTI_ACTIVITY_KIND_KERNEL"):
+        for row in conn.execute(f"SELECT * FROM {self.table_name}"):
             device_id = row["deviceId"]
             stream_id = row["streamId"]
             kernel_name = strings.get(row["shortName"], "Unknown Kernel")
@@ -58,11 +58,11 @@ class CUPTIKernelParser(BaseParser):
         return events
 
 
-class CUPTIRuntimeParser(BaseParser):
+class CUPTIRuntimeParser(DefaultParserImpl):
     """Parser for CUPTI_ACTIVITY_KIND_RUNTIME table."""
     
     def __init__(self):
-        super().__init__("CUPTI_ACTIVITY_KIND_RUNTIME")
+        DefaultParserImpl.__init__(self, "CUPTI_ACTIVITY_KIND_RUNTIME")
     
     def parse(
         self,
@@ -77,13 +77,13 @@ class CUPTIRuntimeParser(BaseParser):
         
         conn.row_factory = sqlite3.Row
         query = (
-            "SELECT start, end, globalTid, correlationId, nameId "
-            "FROM CUPTI_ACTIVITY_KIND_RUNTIME"
+            f"SELECT start, end, globalTid, correlationId, nameId "
+            f"FROM {self.table_name}"
         )
         
         for row in conn.execute(query):
             pid, tid = decompose_global_tid(row["globalTid"])
-            device_id = resolve_device_id(pid, device_map)
+            device_id = device_map.get(pid)
             
             if device_id is None:
                 # If we can't determine device, use PID as fallback

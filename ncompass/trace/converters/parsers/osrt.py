@@ -6,14 +6,14 @@ from typing import Any
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
 from ..mapping import decompose_global_tid
-from .base import BaseParser
+from .base import BaseParser, DefaultParserImpl
 
 
-class OSRTParser(BaseParser):
+class OSRTParser(DefaultParserImpl):
     """Parser for OSRT_API table."""
     
     def __init__(self):
-        super().__init__("OSRT_API")
+        DefaultParserImpl.__init__(self, "OSRT_API")
     
     def parse(
         self,
@@ -27,7 +27,7 @@ class OSRTParser(BaseParser):
         events = []
         
         conn.row_factory = sqlite3.Row
-        query = "SELECT start, end, globalTid, nameId, returnValue, nestingLevel FROM OSRT_API"
+        query = f"SELECT start, end, globalTid, nameId, returnValue, nestingLevel FROM {self.table_name}"
         
         for row in conn.execute(query):
             if row["end"] is None:

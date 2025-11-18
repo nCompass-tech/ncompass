@@ -2,7 +2,7 @@
 
 from .converter import NsysToChromeTraceConverter, convert_file
 from .models import ChromeTraceEvent, ConversionOptions
-from .user_annotation_kernel_linker import link_user_annotation_to_kernels
+from .linker import link_user_annotation_to_kernels
 
 __all__ = [
     "NsysToChromeTraceConverter",

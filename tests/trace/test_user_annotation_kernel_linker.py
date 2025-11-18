@@ -1,5 +1,5 @@
 """
-Tests for ncompass.trace.converters.user_annotation_kernel_linker module.
+Tests for ncompass.trace.converters.linker.user_annotation_linker module.
 """
 
 import json
@@ -8,170 +8,184 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
-from ncompass.trace.converters.user_annotation_kernel_linker import (
-    _extract_event_time_range,
-    _get_correlation_id,
-    _find_overlapping_cuda_runtime,
-    _load_chrome_trace,
+from ncompass.trace.converters.linker.user_annotation_linker import (
     link_user_annotation_to_kernels,
+    _load_chrome_trace,
 )
+from ncompass.trace.converters.linker.adapters import ChromeTraceEventAdapter
+from ncompass.trace.converters.linker.algorithms import find_overlapping_intervals
 
 
 class TestExtractEventTimeRange(unittest.TestCase):
-    """Test cases for _extract_event_time_range function."""
+    """Test cases for ChromeTraceEventAdapter.get_time_range method."""
 
     def test_extract_event_time_range_valid(self):
-        """Test _extract_event_time_range with valid X-phase event."""
+        """Test ChromeTraceEventAdapter.get_time_range with valid X-phase event."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": 100.0,
             "dur": 50.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNotNone(result)
         self.assertEqual(result, (100.0, 150.0))
 
     def test_extract_event_time_range_non_x_phase(self):
-        """Test _extract_event_time_range with non-X phase event."""
+        """Test ChromeTraceEventAdapter.get_time_range with non-X phase event."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "B",  # Begin phase
             "ts": 100.0,
             "dur": 50.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNone(result)
 
     def test_extract_event_time_range_missing_ts(self):
-        """Test _extract_event_time_range with missing ts field."""
+        """Test ChromeTraceEventAdapter.get_time_range with missing ts field."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "dur": 50.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNone(result)
 
     def test_extract_event_time_range_missing_dur(self):
-        """Test _extract_event_time_range with missing dur field."""
+        """Test ChromeTraceEventAdapter.get_time_range with missing dur field."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": 100.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNone(result)
 
     def test_extract_event_time_range_none_ts(self):
-        """Test _extract_event_time_range with None ts value."""
+        """Test ChromeTraceEventAdapter.get_time_range with None ts value."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": None,
             "dur": 50.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNone(result)
 
     def test_extract_event_time_range_none_dur(self):
-        """Test _extract_event_time_range with None dur value."""
+        """Test ChromeTraceEventAdapter.get_time_range with None dur value."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": 100.0,
             "dur": None,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNone(result)
 
     def test_extract_event_time_range_zero_duration(self):
-        """Test _extract_event_time_range with zero duration."""
+        """Test ChromeTraceEventAdapter.get_time_range with zero duration."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": 100.0,
             "dur": 0.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNotNone(result)
         self.assertEqual(result, (100.0, 100.0))
 
     def test_extract_event_time_range_negative_duration(self):
-        """Test _extract_event_time_range with negative duration."""
+        """Test ChromeTraceEventAdapter.get_time_range with negative duration."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "ph": "X",
             "ts": 100.0,
             "dur": -10.0,
         }
-        result = _extract_event_time_range(event)
+        result = adapter.get_time_range(event)
         self.assertIsNotNone(result)
         self.assertEqual(result, (100.0, 90.0))
 
 
 class TestGetCorrelationId(unittest.TestCase):
-    """Test cases for _get_correlation_id function."""
+    """Test cases for ChromeTraceEventAdapter.get_correlation_id method."""
 
     def test_get_correlation_id_with_correlation_field(self):
-        """Test _get_correlation_id with 'correlation' field in args."""
+        """Test ChromeTraceEventAdapter.get_correlation_id with 'correlation' field in args."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {
                 "correlation": 12345,
             }
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertEqual(result, 12345)
 
     def test_get_correlation_id_with_correlation_id_field(self):
-        """Test _get_correlation_id with 'correlationId' field in args."""
+        """Test ChromeTraceEventAdapter.get_correlation_id with 'correlationId' field in args."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {
                 "correlationId": 67890,
             }
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertEqual(result, 67890)
 
     def test_get_correlation_id_both_fields_prefers_correlation(self):
-        """Test _get_correlation_id prefers 'correlation' over 'correlationId'."""
+        """Test ChromeTraceEventAdapter.get_correlation_id prefers 'correlation' over 'correlationId'."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {
                 "correlation": 12345,
                 "correlationId": 67890,
             }
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertEqual(result, 12345)
 
     def test_get_correlation_id_missing_args(self):
-        """Test _get_correlation_id with missing args dict."""
+        """Test ChromeTraceEventAdapter.get_correlation_id with missing args dict."""
+        adapter = ChromeTraceEventAdapter()
         event = {}
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertIsNone(result)
 
     def test_get_correlation_id_empty_args(self):
-        """Test _get_correlation_id with empty args dict."""
+        """Test ChromeTraceEventAdapter.get_correlation_id with empty args dict."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {}
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertIsNone(result)
 
     def test_get_correlation_id_missing_both_fields(self):
-        """Test _get_correlation_id with neither correlation field."""
+        """Test ChromeTraceEventAdapter.get_correlation_id with neither correlation field."""
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {
                 "other_field": "value",
             }
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         self.assertIsNone(result)
 
     def test_get_correlation_id_zero_correlation(self):
-        """Test _get_correlation_id with zero correlation ID.
+        """Test ChromeTraceEventAdapter.get_correlation_id with zero correlation ID.
         
         Note: Due to 'or' operator, 0 is falsy so it will fall back to correlationId.
         This tests the actual behavior of the code.
         """
+        adapter = ChromeTraceEventAdapter()
         event = {
             "args": {
                 "correlation": 0,
             }
         }
-        result = _get_correlation_id(event)
+        result = adapter.get_correlation_id(event)
         # Due to 'or' operator, 0 is falsy so returns None (no correlationId)
         self.assertIsNone(result)
         
@@ -182,15 +196,16 @@ class TestGetCorrelationId(unittest.TestCase):
                 "correlationId": 0,
             }
         }
-        result2 = _get_correlation_id(event2)
+        result2 = adapter.get_correlation_id(event2)
         self.assertEqual(result2, 0)
 
 
 class TestFindOverlappingCudaRuntime(unittest.TestCase):
-    """Test cases for _find_overlapping_cuda_runtime function."""
+    """Test cases for find_overlapping_intervals function."""
 
     def test_find_overlapping_cuda_runtime_basic_overlap(self):
         """Test basic overlapping intervals."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -211,8 +226,9 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             }
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 1)
         event_id = ("test_annotation", 100.0, 1, 1)
@@ -221,6 +237,7 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
 
     def test_find_overlapping_cuda_runtime_no_overlap(self):
         """Test non-overlapping intervals."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -241,13 +258,15 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             }
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 0)
 
     def test_find_overlapping_cuda_runtime_multiple_cuda_overlaps(self):
         """Test multiple CUDA runtime events overlapping with one user_annotation."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -276,8 +295,9 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             },
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 1)
         event_id = ("test_annotation", 100.0, 1, 1)
@@ -286,6 +306,7 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
 
     def test_find_overlapping_cuda_runtime_user_annotation_no_overlaps(self):
         """Test user_annotation events with no overlaps."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -297,13 +318,15 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
             }
         ]
         cuda_runtime_events = []
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 0)
 
     def test_find_overlapping_cuda_runtime_invalid_time_range_filtered(self):
         """Test events with invalid time ranges are filtered out."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -339,8 +362,9 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             },
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         # Only valid user_annotation should be in result
         self.assertEqual(len(result), 1)
@@ -349,6 +373,7 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
 
     def test_find_overlapping_cuda_runtime_touching_intervals(self):
         """Test touching intervals (end of one equals start of another)."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -369,14 +394,16 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             }
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         # Touching intervals don't overlap
         self.assertEqual(len(result), 0)
 
     def test_find_overlapping_cuda_runtime_nested_intervals(self):
         """Test nested intervals (CUDA runtime completely within user_annotation)."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "test_annotation",
@@ -397,8 +424,9 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             }
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 1)
         event_id = ("test_annotation", 100.0, 1, 1)
@@ -407,11 +435,15 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
 
     def test_find_overlapping_cuda_runtime_empty_inputs(self):
         """Test with empty input lists."""
-        result = _find_overlapping_cuda_runtime([], [])
+        adapter = ChromeTraceEventAdapter()
+        result = find_overlapping_intervals(
+            [], [], adapter, "user_annotation", "cuda_runtime"
+        )
         self.assertEqual(len(result), 0)
 
     def test_find_overlapping_cuda_runtime_multiple_user_annotations(self):
         """Test multiple user_annotation events."""
+        adapter = ChromeTraceEventAdapter()
         user_annotation_events = [
             {
                 "name": "annotation1",
@@ -448,8 +480,9 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
                 "tid": 1,
             },
         ]
-        result = _find_overlapping_cuda_runtime(
-            user_annotation_events, cuda_runtime_events
+        result = find_overlapping_intervals(
+            user_annotation_events, cuda_runtime_events, adapter,
+            "user_annotation", "cuda_runtime"
         )
         self.assertEqual(len(result), 2)
         self.assertIn(("annotation1", 100.0, 1, 1), result)
@@ -1100,7 +1133,7 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
         self.assertEqual(gpu_ua_events[0]["ts"], 120.0)
         self.assertEqual(gpu_ua_events[0]["dur"], 50.0)
 
-    @patch('ncompass.trace.converters.user_annotation_kernel_linker.logger')
+    @patch('ncompass.trace.converters.linker.user_annotation_linker.logger')
     def test_link_user_annotation_to_kernels_verbose_logging(self, mock_logger):
         """Test verbose logging output."""
         trace_data = {
