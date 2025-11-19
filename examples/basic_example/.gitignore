@@ -1,2 +1,3 @@
-*.json
 ncompass
+*.json
+!test_trace.pt.trace.json
