@@ -77,7 +77,12 @@ def run_chrome_step(sqlite_file: Path, chrome_trace_file: Path) -> int:
         return 1
 
 
-def main():
+def parse_args():
+    """Parse command-line arguments.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments
+    """
     parser = argparse.ArgumentParser(
         description="Convert nsys report (.nsys-rep) to SQLite and Chrome trace JSON format.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -121,11 +126,20 @@ Examples:
              "'chrome' (sqlite -> json), or 'all' (run all steps). Default: all"
     )
     
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def resolve_file_paths(args, script_dir: Path):
+    """Resolve file paths based on arguments and step.
     
-    # Get the directory where this script is located
-    script_dir = Path(__file__).parent.absolute()
-    
+    Args:
+        args: Parsed command-line arguments
+        script_dir: Directory where the script is located
+        
+    Returns:
+        tuple: (nsys_rep_file, sqlite_file, chrome_trace_file)
+               Some values may be None depending on the step
+    """
     # Resolve input file path
     input_file = script_dir / args.input
     
@@ -147,6 +161,7 @@ Examples:
             )
         sqlite_file = input_file
         chrome_trace_file = script_dir / f"{output_base}.json"
+        return (None, sqlite_file, chrome_trace_file)
     else:
         # For sqlite or all steps, input should be nsys-rep file
         if not input_file.suffix == ".nsys-rep":
@@ -158,6 +173,17 @@ Examples:
         nsys_rep_file = input_file
         sqlite_file = script_dir / f"{output_base}.sqlite"
         chrome_trace_file = script_dir / f"{output_base}.json"
+        return (nsys_rep_file, sqlite_file, chrome_trace_file)
+
+
+def main():
+    args = parse_args()
+    
+    # Get the directory where this script is located
+    script_dir = Path(__file__).parent.absolute()
+    
+    # Resolve file paths based on arguments
+    nsys_rep_file, sqlite_file, chrome_trace_file = resolve_file_paths(args, script_dir)
     
     # Run the requested step(s)
     if args.step == "all":

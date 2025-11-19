@@ -7,14 +7,30 @@ from typing import Any, Optional
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
 from ..mapping import decompose_global_tid
-from .base import BaseParser, DefaultParserImpl
+from .base import BaseParser
+from .default import default_init, default_table_exists, default_safe_parse
 
-class NVTXParser(DefaultParserImpl):
+class NVTXParser(BaseParser):
     """Parser for NVTX_EVENTS table."""
     
     def __init__(self):
-        DefaultParserImpl.__init__(self, "NVTX_EVENTS")
+        default_init(self, "NVTX_EVENTS")
         self.NVTX_PUSH_POP_EVENT_ID = 59
+    
+    def table_exists(self, conn: sqlite3.Connection) -> bool:
+        """Check if the table exists in the database."""
+        return default_table_exists(self, conn)
+    
+    def safe_parse(
+        self,
+        conn: sqlite3.Connection,
+        strings: dict[int, str],
+        options: ConversionOptions,
+        device_map: dict[int, int],
+        thread_names: dict[int, str],
+    ) -> list[ChromeTraceEvent]:
+        """Safely parse events, returning empty list if table doesn't exist."""
+        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def _build_filter_clause(self, event_prefix: Optional[list[str]]) -> str:
         """Build SQL WHERE clause for event prefix filtering."""
@@ -26,7 +42,7 @@ class NVTXParser(DefaultParserImpl):
         
         conditions = " OR ".join(f"text LIKE '{prefix}%'" for prefix in event_prefix)
         return f" AND ({conditions})"
-    
+
     def parse(
         self,
         conn: sqlite3.Connection,
