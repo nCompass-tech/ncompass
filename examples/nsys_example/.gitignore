@@ -2,3 +2,4 @@
 *.sqlite
 ncompass
 *.nsys-rep
+!test_trace.nsys-rep

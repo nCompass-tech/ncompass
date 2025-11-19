@@ -2,3 +2,12 @@ vscode/ncprof-vscode-0.0.1.vsix filter=lfs diff=lfs merge=lfs -text
 vscode/ncprof-vscode-0.0.2.vsix filter=lfs diff=lfs merge=lfs -text
 vscode/ncprof-vscode-0.0.2-dev.0.vsix filter=lfs diff=lfs merge=lfs -text
 vscode/ncprof-vscode-0.0.3-dev.0.vsix filter=lfs diff=lfs merge=lfs -text
+examples/basic_example/test_trace.pt.trace.json filter=lfs diff=lfs merge=lfs -text
+tests/integration/gold.pt.trace.json filter=lfs diff=lfs merge=lfs -text
+examples/nsys_example/test_trace.nsys-rep filter=lfs diff=lfs merge=lfs -text
+tests/integration/gold_nsys_example.json filter=lfs diff=lfs merge=lfs -text
+examples/basic_example/test_files/ filter=lfs diff=lfs merge=lfs -text
+examples/nsys_example/test_files/ filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_basic_example/golden_references/ filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_nsys_example/golden_references/ filter=lfs diff=lfs merge=lfs -text
+examples/nsys_example/test_files/test_trace.nsys-rep filter=lfs diff=lfs merge=lfs -text
