@@ -6,14 +6,30 @@ from typing import Any
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
 from ..mapping import decompose_global_tid
-from .base import BaseParser, DefaultParserImpl
+from .base import BaseParser
+from .default import default_init, default_table_exists, default_safe_parse
 
 
-class CUPTIKernelParser(DefaultParserImpl):
+class CUPTIKernelParser(BaseParser):
     """Parser for CUPTI_ACTIVITY_KIND_KERNEL table."""
     
     def __init__(self):
-        DefaultParserImpl.__init__(self, "CUPTI_ACTIVITY_KIND_KERNEL")
+        default_init(self, "CUPTI_ACTIVITY_KIND_KERNEL")
+    
+    def table_exists(self, conn: sqlite3.Connection) -> bool:
+        """Check if the table exists in the database."""
+        return default_table_exists(self, conn)
+    
+    def safe_parse(
+        self,
+        conn: sqlite3.Connection,
+        strings: dict[int, str],
+        options: ConversionOptions,
+        device_map: dict[int, int],
+        thread_names: dict[int, str],
+    ) -> list[ChromeTraceEvent]:
+        """Safely parse events, returning empty list if table doesn't exist."""
+        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -58,11 +74,26 @@ class CUPTIKernelParser(DefaultParserImpl):
         return events
 
 
-class CUPTIRuntimeParser(DefaultParserImpl):
+class CUPTIRuntimeParser(BaseParser):
     """Parser for CUPTI_ACTIVITY_KIND_RUNTIME table."""
     
     def __init__(self):
-        DefaultParserImpl.__init__(self, "CUPTI_ACTIVITY_KIND_RUNTIME")
+        default_init(self, "CUPTI_ACTIVITY_KIND_RUNTIME")
+    
+    def table_exists(self, conn: sqlite3.Connection) -> bool:
+        """Check if the table exists in the database."""
+        return default_table_exists(self, conn)
+    
+    def safe_parse(
+        self,
+        conn: sqlite3.Connection,
+        strings: dict[int, str],
+        options: ConversionOptions,
+        device_map: dict[int, int],
+        thread_names: dict[int, str],
+    ) -> list[ChromeTraceEvent]:
+        """Safely parse events, returning empty list if table doesn't exist."""
+        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,

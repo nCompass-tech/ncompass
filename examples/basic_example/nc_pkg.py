@@ -68,7 +68,7 @@ def run_container(tag:str, name:str, auto_exec=True):
 
     if auto_exec:
         if local_ncompass_dir:
-            print(f"Uninstall pip installed ncompass SDK as local SDK found")
+            print(f"Uninstalling pip installed ncompass SDK as local SDK found")
             subprocess.run(["docker", "exec", name, "/bin/bash", "-c", "uv pip uninstall ncompass"])
         print(f"Executing interactive shell in container '{name}'...")
         subprocess.run(["docker", "exec", "-it", name, "/bin/bash"])
