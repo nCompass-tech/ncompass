@@ -19,3 +19,15 @@ For usage, import from submodules:
     from ncompass.trace import ProfilingSession, enable_rewrites
 """
 
+from pathlib import Path
+import tomllib
+
+# Read version from pyproject.toml
+try:
+    pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        pyproject_data = tomllib.load(f)
+    __version__ = pyproject_data.get("project", {}).get("version", "unknown")
+except (FileNotFoundError, KeyError, Exception):
+    __version__ = "unknown"
+
