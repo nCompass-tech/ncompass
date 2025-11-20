@@ -33,7 +33,7 @@ def _get_compose_env(example_dir: Path) -> dict[str, str]:
     Returns:
         Dictionary of environment variables
     """
-    env = os.environ.copy()
+    env = {}
     
     # Resolve example directory using HOST_BASE logic
     example_dir_resolved = resolve_host_path(example_dir)
