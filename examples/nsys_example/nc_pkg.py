@@ -46,7 +46,7 @@ def get_compose_env() -> dict[str, str]:
     Returns:
         Dictionary of environment variables
     """
-    env = os.environ.copy()
+    env = {}
     
     # Resolve current directory using HOST_BASE logic
     current_dir = resolve_host_path(Path.cwd())
@@ -118,7 +118,7 @@ def down_container(compose_files: list[str], env: dict[str, str]) -> None:
     else:
         print("No running container found.")
 
-def ensure_container_running(compose_files: list[str], env: dict[str, str]) -> None:
+def force_restart_container(compose_files: list[str], env: dict[str, str]) -> None:
     """
     Ensure the container is running, starting it if necessary.
     
@@ -190,7 +190,7 @@ def run_container(tag: str, name: str, auto_exec: bool = True):
     print(f"Mounting current directory: {env['CURRENT_DIR']}")
     
     # Ensure container is running
-    ensure_container_running(compose_files, env)
+    force_restart_container(compose_files, env)
 
     if auto_exec:
         print(f"Executing interactive shell in container '{name}'...")
@@ -217,7 +217,7 @@ def exec_command(tag: str, name: str, command: str):
     env = get_compose_env()
     
     # Ensure container is running
-    ensure_container_running(compose_files, env)
+    force_restart_container(compose_files, env)
     
     # Execute the command in bash
     print(f"Executing command in container '{name}': {command}")
