@@ -144,7 +144,7 @@ Chrome trace file: test_trace.json
 ### Examples
 
 ```bash
-# Convert default file
+# This runs the program on the default file (test_files/test_trace.nsys-rep)
 python convert_nsys.py
 
 # Convert specific file

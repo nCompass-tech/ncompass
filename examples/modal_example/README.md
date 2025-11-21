@@ -300,14 +300,14 @@ modal run torch_profiling_example.py --label "large" --hidden-size 1024
 
 ## Additional Resources
 
+- **[nCompass VSCode Extension Documentation](https://docs.ncompass.tech/ncprof/quick-start)** - Complete guide to using the extension
 - **[Modal Documentation](https://modal.com/docs)** - Complete Modal platform documentation
 - **[Modal PyTorch Profiling Example](https://modal.com/docs/examples/torch_profiling)** - Original Modal example
-- **[nCompass VSCode Extension Documentation](https://docs.ncompass.tech/ncprof/quick-start)** - Complete guide to using the extension
 - **[PyTorch Profiler Documentation](https://pytorch.org/docs/stable/profiler.html)** - Learn about PyTorch's profiling capabilities
 
 ## Support
 
 For questions or issues:
-- **Modal Support**: Check [Modal Documentation](https://modal.com/docs) or [Modal Community](https://modal.com/community)
 - **nCompass Support**: Check the [Documentation](https://docs.ncompass.tech) or visit the [Community Forum](https://community.ncompass.tech)
 - **GitHub Issues**: Open an issue on [GitHub](https://github.com/ncompass-tech/ncompass/issues)
+- **Modal Support**: Check [Modal Documentation](https://modal.com/docs) or [Modal Community](https://modal.com/community)
