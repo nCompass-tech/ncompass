@@ -107,7 +107,7 @@ Examples:
     parser.add_argument(
         "--input", "-i",
         type=str,
-        default="vllm_trace_profile.nsys-rep",
+        default="test_files/test_trace.nsys-rep",
         help="Input nsys report file (.nsys-rep) or SQLite file (.sqlite) if --step chrome. "
              "Default: vllm_trace_profile.nsys-rep"
     )
