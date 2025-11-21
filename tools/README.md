@@ -26,7 +26,7 @@ make lint              # Run linters
 make format            # Auto-format code
 ```
 
-## 📊 Coverage Types
+# 📊 Coverage Types
 
 This project tracks three types of coverage:
 

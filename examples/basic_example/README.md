@@ -1,38 +1,56 @@
 # Basic Example: PyTorch Profiling with nCompass SDK
 
-This example demonstrates how to profile PyTorch neural network training using the nCompass SDK. It shows how to:
+This example demonstrates how to profile PyTorch neural network training using the nCompass SDK with **zero-instrumentation profiling**. It shows how to:
 
-1. Integrate nCompass SDK for tracing and instrumentation
-2. Train a simple neural network with instrumentation
-3. Profile GPU-accelerated PyTorch code locally
-4. Link user annotations to GPU kernel executions
-5. Save and view profiling traces
+- Automatically inject profiling markers using AST-level code rewriting
+- Train a simple neural network with automatic instrumentation
+- Profile GPU-accelerated PyTorch code locally
+- Link user annotations to GPU kernel executions
+- View traces directly in the VSCode extension
 
-> **Note**: This example is derived from the [Modal torch_profiling example](https://modal.com/docs/examples/torch_profiling#tracing-and-profiling-gpu-accelerated-pytorch-programs-on-modal), adapted to run locally with nCompass SDK integration instead of Modal's cloud infrastructure.
+> **Note**: This example works best with the [nCompass VSCode extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode), which automatically creates the profiling configuration and provides an integrated trace viewer.
 
 ## Prerequisites
 
-- Python 3.8+
-- CUDA-capable GPU (optional, but recommended for best results)
+Before you begin, ensure you have:
 
-## Quick Start
+- **Python 3.11+** (required)
+- **CUDA-capable GPU**
+- **VSCode** with the [nCompass extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode) installed
 
-### Installation
-#### Without Docker
+## Step-by-Step Guide
+
+### Step 1: Install Dependencies
+
+Create a virtual environment and install the required packages:
+
 ```bash
-python -m venv venv-basic-example
-source venv-basic-example/bin/activate
-pip install uv 
-uv pip install -r requirements.txt
+# Create a virtual environment
+python3.11 -m venv venv-basic-example
+
+# Activate the virtual environment
+source venv-basic-example/bin/activate  # On Windows: venv-basic-example\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-#### With Docker
-```bash
-python nc_pkg.py --build --run
-# This puts you in an envi
-```
+> ⚠️ **Troubleshooting**: If you encounter issues with `ncompasslib` or `pydantic`, ensure you're running Python 3.11 and have `Pydantic>=2.0` installed.
 
-### Basic Profiling
+### Step 2: Set Up the VSCode Extension
+
+The nCompass SDK requires a profiling configuration file that is automatically created by the VSCode extension:
+
+1. **Install the extension**: Open VSCode and install the [nCompass extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode)
+2. **Open the example directory**: Open the `basic_example` folder in VSCode
+3. **Add tracepoints**:
+   - Open `simplenet.py` in VSCode
+   - Use the extension to add tracepoints to functions you want to profile
+   - The extension will automatically create the configuration file at `.cache/ncompass/profiles/.default/.default/current/config.json`
+
+> 💡 **Tip**: If you don't add tracepoints manually, the example will still work, but you won't see custom annotations in your traces. The extension's tracepoint UI makes it easy to mark which functions should be profiled.
+
+### Step 3: Run Basic Profiling
 
 Run the example with default settings:
 
@@ -42,14 +60,38 @@ python main.py
 
 This will:
 - Train a simple neural network for 3 profiling steps
-- Automatically link `user_annotation` events to GPU kernels (enabled by default)
-- Generate a Chrome trace JSON file in `.traces/` directory
-- Save profiling data for analysis
+- Automatically inject profiling markers (if config exists)
+- Link `user_annotation` events to GPU kernels (enabled by default)
+- Generate a Chrome trace JSON file in the `.traces/` directory
+- Print a summary of the profiling session
 
-### With Custom Options
+### Step 4: View Traces in VSCode
+
+1. **Open the trace file**: In VSCode, navigate to the `.traces/` directory and open the generated `.pt.trace.json` file by `right-clicking -> Open With... -> GPU Trace Viewer`
+2. **Explore the trace**:
+   - See CPU events (function calls, user annotations)
+   - See GPU events (kernel executions, memory operations)
+   - Navigate between code and trace using the extension's code-to-trace linking
+
+### Step 5: Customize Your Profiling Run
+
+You can customize the profiling session with various command-line options:
 
 ```bash
-python main.py --label "baseline" --steps 5 --epochs 20 --hidden-size 1024
+# Profile with a custom label
+python main.py --label "baseline" --steps 5 --epochs 20
+
+# Profile a larger model
+python main.py --label "large_model" --hidden-size 1024 --steps 3
+
+# Get verbose linking statistics
+python main.py --verbose --steps 3
+
+# Disable automatic annotation linking
+python main.py --no-link
+
+# Print top operations summary
+python main.py --print-rows 20
 ```
 
 ## Command-Line Options
@@ -74,61 +116,45 @@ python main.py --label "baseline" --steps 5 --epochs 20 --hidden-size 1024
 - `--custom-config-path TEXT`: Path to custom profiling targets JSON config
 - `--no-link`: Disable linking user_annotation events to kernels (linking is enabled by default)
 - `--verbose`, `-v`: Print detailed statistics when linking annotations
+- `--link-only PATH`: Only link an existing trace file (must end with `.pt.trace.json`)
 
-## Linking User Annotations to Kernels
+## Understanding the Workflow
 
-The example includes functionality to link CPU-side `user_annotation` events (like `torch.profiler.record_function`) to their corresponding GPU kernel executions. This helps visualize the relationship between high-level operations and actual GPU work.
+### How Zero-Instrumentation Profiling Works
 
-**Linking is enabled by default** - all profiling runs automatically link annotations unless you disable it with `--no-link`.
+1. **Configuration**: The VSCode extension creates a configuration file at `.cache/ncompass/profiles/.default/.default/current/config.json` that specifies which functions should be instrumented.
 
-### Automatic Linking During Profiling
+2. **AST Rewriting**: When you run `main.py`, it calls `enable_rewrites()` which:
+   - Loads the configuration file
+   - Uses Python's import system to intercept module loading
+   - Automatically wraps specified functions with `torch.profiler.record_function()` contexts
+   - No manual code changes needed!
 
-By default, profiling automatically links annotations:
+3. **Profiling**: PyTorch's profiler captures:
+   - CPU events (function calls, annotations)
+   - GPU events (kernel executions, memory operations)
+   - CUDA runtime API calls
 
-```bash
-python main.py
-```
+4. **Linking**: The SDK automatically links CPU-side annotations to their corresponding GPU kernel executions using CUDA correlation IDs.
 
-With verbose output to see detailed statistics:
+### File Structure
 
-```bash
-python main.py --verbose
-```
+- `main.py`: Main profiling script with command-line interface
+- `simplenet.py`: Simple neural network model and training function (this is what gets instrumented)
+- `utils.py`: Shared utility functions for trace processing and statistics
+- `nc_pkg.py`: Docker helper script
 
-To disable linking:
+## Use Case: Link Existing Trace
 
-```bash
-python main.py --no-link
-```
-
-When linking is enabled (default), the profiler will:
-- Run the profiling session
-- Automatically link `user_annotation` events to kernels using CUDA runtime correlation IDs
-- Overwrite the original trace file with the linked version
-- Print detailed statistics (if `--verbose` is used)
-
-### Standalone Linking Script
-
-You can also link annotations in an existing trace file using the standalone script:
+If you have an existing trace file and want to add kernel linking:
 
 ```bash
-python link_user_annotation_kernels.py input_trace.json output_trace.json
+python main.py --link-only .traces/train_simple_network_*/xxx.pt.trace.json
 ```
 
-The script will:
-- Load the input trace file
-- Find overlapping intervals between `user_annotation` and CUDA runtime events
-- Use correlation IDs to link CUDA runtime calls to kernels
-- Create new `gpu_user_annotation` events that span actual kernel execution times
-- Print detailed statistics about the linking process
-- Save the linked trace to the output file
+This creates a new file with `.linked.pt.trace.json` suffix containing the linked events.
 
-**Replacement Logic:**
-- If both `gpu_user_annotation` and `user_annotation` exist (same name) → replaces `gpu_user_annotation`
-- If only `user_annotation` exists → replaces `user_annotation` with new `gpu_user_annotation`
-- If only `gpu_user_annotation` exists → leaves it unchanged
-
-## Output
+## Output Files
 
 ### Trace Files
 
@@ -142,91 +168,89 @@ train_simple_network_baseline_20240101_120000_abc12345/xxx.pt.trace.json
 The trace files contain:
 - **CPU events**: Function calls, user annotations, CUDA runtime API calls
 - **GPU events**: Kernel executions, memory operations
-- **Linked events**: `gpu_user_annotation` events that span kernel execution times (enabled by default, use `--no-link` to disable)
+- **Linked events**: `gpu_user_annotation` events that span kernel execution times (enabled by default)
 
-## Viewing Traces
+## Troubleshooting
 
-### Using the nCompass VSCode Extension (Recommended)
+### Issue: "No config file found" or rewrites not enabled
 
-The easiest way to view traces is using the [nCompass VSCode extension](https://docs.ncompass.tech/ncprof/quick-start). The extension allows you to:
+**Solution**: Make sure you've set up the VSCode extension and created a profile. The config file should be at `.cache/ncompass/profiles/.default/.default/current/config.json`.
 
-- Open trace files directly in VSCode
-- View CPU and GPU activity in an interactive timeline
-- See linked user annotations and their corresponding kernel executions
-- Filter and analyze performance data
+### Issue: Import errors with ncompasslib or pydantic
 
-To get started, install the nCompass extension in VSCode and follow the [quick start guide](https://docs.ncompass.tech/ncprof/quick-start) to view your trace files.
+**Solution**: 
+- Ensure you're using Python 3.11+
+- Install `Pydantic>=2.0`: `pip install "pydantic>=2.0"`
+- Reinstall ncompass: `pip install --upgrade ncompass`
 
-## Example Workflows
+### Issue: CUDA not available
 
-### 1. Basic Profiling Run
+**Solution**: The example will run on CPU, but GPU profiling provides much better insights. Ensure:
+- CUDA-capable GPU is available
+- PyTorch with CUDA support is installed
+- CUDA drivers are properly configured
 
-```bash
-python main.py --steps 5 --epochs 20
-```
+### Issue: Trace file not found
 
-### 2. Profiling with Verbose Linking Statistics
+**Solution**: Check that:
+- The profiling completed successfully
+- The `.traces/` directory exists
+- Look for the most recent trace file in the output directory
 
-```bash
-python main.py --verbose --steps 3
-```
+## Docker Setup (Optional)
 
-Note: Linking is enabled by default, so `--link` is not needed. Use `--verbose` to see detailed statistics.
+If you prefer to use Docker, you can run the example in a containerized environment:
 
-### 3. Compare Different Configurations
+### Prerequisites
 
-```bash
-# Baseline
-python main.py --label "baseline" --hidden-size 512
+- Docker and Docker Compose installed
+- NVIDIA Docker runtime (for GPU support)
 
-# Larger model
-python main.py --label "large" --hidden-size 1024
-
-# Compare traces in Perfetto
-```
-
-### 4. Link Existing Trace
+### Quick Start
 
 ```bash
-python link_user_annotation_kernels.py \
-    .traces/train_simple_network_*/xxx.pt.trace.json \
-    linked_trace.json
+# Build and run the container
+python nc_pkg.py --build --run
 ```
 
-## Understanding the Code
+This will:
+- Build a Docker image with all dependencies
+- Start a container with GPU access
+- Drop you into an interactive shell inside the container
 
-### File Structure
-
-- `main.py`: Main profiling script with command-line interface
-- `simplenet.py`: Simple neural network model and training function
-- `link_user_annotation_kernels.py`: Standalone script for linking annotations
-- `utils.py`: Shared utility functions for trace processing and statistics
-
-### Profiling Targets
-
-The example uses nCompass profiling targets to automatically instrument specific code regions. See `PROFILING_TARGETS` in `main.py` for configuration.
-
-The profiling targets configuration mimics the `config.json` format generated by the [ncprof VSCode extension](https://docs.ncompass.tech/ncprof/quick-start). This allows you to define which functions should be automatically wrapped with profiling contexts that appear in PyTorch profiler traces.
-
-### Custom Configuration
-
-You can provide a custom profiling targets JSON file:
+### Docker Commands
 
 ```bash
-python main.py --custom-config-path my_config.json
+# Build the image
+python nc_pkg.py --build
+
+# Run the container (interactive shell)
+python nc_pkg.py --run
+
+# Run a command in the container
+python nc_pkg.py --exec "python main.py --label test"
+
+# Stop and remove the container
+python nc_pkg.py --down
 ```
 
-The JSON should follow the same structure as `PROFILING_TARGETS` in `main.py`, which matches the format used by the ncprof VSCode extension. See the [ncprof quick start guide](https://docs.ncompass.tech/ncprof/quick-start) for more details on the configuration format.
+### Docker Notes
 
-## Running a test with the local version of the SDK
-```bash
-Run ./setup_local_test_env.sh
-```
-This will create a symlink of the SDK here. Uninstall ncompass from whatever env (docker / venv)
-you're running in.
+- The container mounts the current directory to `/workspace`
+- Traces are saved to `.traces/` which is accessible from the host
+- GPU access is enabled via NVIDIA Docker runtime
+- The container uses Python 3.12 and includes all dependencies
 
 ## Additional Resources
-- [ncprof VSCode Extension Documentation](https://docs.ncompass.tech/ncprof/quick-start)
-- [PyTorch Profiler Documentation](https://pytorch.org/docs/stable/profiler.html)
-- [nCompass SDK Documentation](../README.md)
 
+- **[nCompass VSCode Extension Documentation](https://docs.ncompass.tech/ncprof/quick-start)** - Complete guide to using the extension
+- **[PyTorch Profiler Documentation](https://pytorch.org/docs/stable/profiler.html)** - Learn about PyTorch's profiling capabilities
+- **[nCompass SDK Documentation](../../README.md)** - More details on SDK documentation
+- **[Examples README](../README.md)** - Overview of all available examples
+
+## Support
+
+For questions or issues:
+- Check the [Documentation](https://docs.ncompass.tech)
+- Visit the [Community Forum](https://community.ncompass.tech)
+- Open an issue on [GitHub](https://github.com/ncompass-tech/ncompass/issues)

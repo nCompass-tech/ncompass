@@ -5,15 +5,30 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-Profiling and trace analysis SDK. Built by [nCompass Technologies](https://ncompass.tech).
+The Python SDK powering our Performance Optimization IDE—bringing seamless profiling and performance analysis directly into your development workflow.
 
-## Features
+Built by [nCompass Technologies](https://ncompass.tech).
 
-- **📊 Advanced Profiling** - Built-in performance monitoring and health metrics
-- **🤖 AI-Powered Analysis** - Intelligent trace analysis and bottleneck identification
-- **🔄 Iterative Optimization** - Progressive profiling workflow for targeted improvements
-- **🎯 AST-Level Instrumentation** - Automatic code instrumentation without manual changes
-- **⚡ Production-Ready** - Separate development and production configurations
+## What are we building?
+
+We're building a **Performance Optimization IDE** that improves developer productivity by 100x when profiling and analyzing performance of GPU and other accelerator systems. Our IDE consists of two integrated components:
+
+### 🎯 [VSCode Extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode)
+
+Unify your profiling workflow with seamless integration between traces and codebases:
+
+- **No more context switching** — profile, analyze, and optimize all in one place
+- **Zero-copy workflow** — visualize traces directly in your editor without transferring files between machines
+- **Code-to-trace navigation** — jump seamlessly between your codebase and performance traces
+- **AI-powered insights** — get intelligent suggestions for performance improvements and bottleneck identification
+
+### ⚙️ **SDK (this repo)**
+
+The Python SDK that powers the extension with powerful automation features:
+
+- **Zero-instrumentation profiling** — AST-level code injection means you never need to manually add profiling statements
+- **Universal trace conversion** — convert traces from nsys and other formats to Chrome traces for integrated visualization
+- **Extensible architecture** — built for customization and extension (contributions welcome!)
 
 ## Installation
 
@@ -23,16 +38,18 @@ Install via pip:
 pip install ncompass
 ```
 
+> ⚠️ **Troubleshooting**: If you run into issues with `ncompasslib` or `pydantic`, ensure that:
+> 
+> 1. You are running Python 3.11
+> 2. You have `Pydantic>=2.0` installed
+
 ## Examples
-<!-- TODO: Update readme after setting up actual examples -->
-Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass) for examples.
 
-## Documentation
+Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass/tree/main/examples) for examples. Our examples are built to work together with the VSCode extension. For instance, with adding tracepoints to the code, you can add/remove tracepoints using the extension and then run profiling using our examples. 
 
-- **[Getting Started](docs/getting_started.md)** - Installation and basic usage
-- **[API Reference](docs/api_reference.md)** - Complete API documentation  
-- **[Advanced Usage](docs/advanced_usage.md)** - Advanced features and best practices
-- **[Examples](examples/)** - Working code examples
+- **[Basic TorchProfile Example](examples/basic_example/)**
+- **[Nsight Systems Examples](examples/nsys_example/)**
+- **[Running remotely on Modal](examples/modal_example/)**
 
 ## Online Resources
 
@@ -41,25 +58,11 @@ Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass
 - 💬 **Community**: [community.ncompass.tech](https://community.ncompass.tech)
 - 🐛 **Issues**: [GitHub Issues](https://github.com/ncompass-tech/ncompass/issues)
 
-## Why nCompass?
-
-- AI assisted bottleneck identification
-- Intelligent profiling marker suggestions
-- Progressive optimization guidance
-
 ## Requirements
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - PyTorch 2.0+ (optional, for torch profiling features)
 - CUDA-capable GPU (optional, for GPU profiling)
-
-## Examples
-
-See the [examples](examples/) directory for complete working examples:
-
-- **[basic_usage.py](examples/basic_usage.py)** - Simple profiling session
-- **[profiling_session.py](examples/profiling_session.py)** - Complete workflow
-- **[advanced_tracing.py](examples/advanced_tracing.py)** - Iterative optimization
 
 ## Development
 
@@ -91,12 +94,7 @@ ncompass/
 ├── ncompass/           # Main package
 ├── tests/              # Test suite
 ├── examples/           # Usage examples
-├── docs/               # Documentation
 └── tools/              # All development tools
-    ├── Makefile
-    ├── COVERAGE.md
-    ├── pyrightconfig.json
-    └── .coveragerc
 ```
 
 ## License
@@ -107,14 +105,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 - **Documentation**: [docs.ncompass.tech](https://docs.ncompass.tech)
 - **Community Forum**: [community.ncompass.tech](https://community.ncompass.tech)
-- **Email**: support@ncompass.tech
-
-## About nCompass Technologies
-
-We are building tools that allow GPU kernel developers save hours of dev time every week. Write code that runs twice as fast, twice as quickly.
-
-Learn more at [ncompass.tech](https://ncompass.tech).
-
----
+- **Email**: aditya.rajagopal@ncompass.tech
 
 Made with ⚡ by [nCompass Technologies](https://ncompass.tech)
