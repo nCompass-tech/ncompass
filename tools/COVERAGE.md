@@ -10,9 +10,6 @@ This project uses comprehensive coverage tooling to maintain code quality. All c
 # Install all development dependencies (from project root)
 pip install -e ".[dev]"
 
-# Or use pinned versions
-pip install -r nc_reqs.txt
-
 # Run coverage checks from tools/ directory
 cd tools
 make all-checks
