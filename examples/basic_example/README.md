@@ -145,6 +145,13 @@ python main.py --print-rows 20
 - `nc_pkg.py`: Docker helper script
 
 ## Use Case: Link Existing Trace
+When you add TorchRecord or NVTX contexts to source code, generally show up on CPU timelines. This
+means they'll be connected with the CPU side kernel launch calls, but won't necessarily align
+visually with the kernels that are actually running on the GPU.
+
+What we mean here by kernel linking is that we analyze the trace file and link the CPU side events
+with their corresponding GPU side events and ensure that the markers you placed visually appear
+over the kernel events rather than the CPU kernel launch events.
 
 If you have an existing trace file and want to add kernel linking:
 
@@ -174,7 +181,8 @@ The trace files contain:
 
 ### Issue: "No config file found" or rewrites not enabled
 
-**Solution**: Make sure you've set up the VSCode extension and created a profile. The config file should be at `.cache/ncompass/profiles/.default/.default/current/config.json`.
+**Solution**: Make sure you've set up the VSCode extension. Once you add tracepoints, the config 
+file should be generated at `.cache/ncompass/profiles/.default/.default/current/config.json`.
 
 ### Issue: Import errors with ncompasslib or pydantic
 
