@@ -20,25 +20,22 @@ from .algorithms import (
 from .adapters import ChromeTraceEventAdapter
 
 
-def _load_chrome_trace(trace_path: str | Path) -> list[dict[str, Any]]:
+def _load_chrome_trace(trace_path: str | Path) -> dict[str, Any]:
     """Load Chrome trace JSON file.
     
     Args:
         trace_path: Path to Chrome trace JSON file
         
     Returns:
-        List of trace events
+        Dict with 'traceEvents' key
     """
     with open(trace_path, 'r') as f:
         data = json.load(f)
     
-    # Handle both array format and object with traceEvents key
-    if isinstance(data, list):
-        return data
-    elif isinstance(data, dict) and "traceEvents" in data:
-        return data["traceEvents"]
-    else:
-        raise ValueError(f"Unexpected trace format in {trace_path}")
+    if not isinstance(data, dict) or "traceEvents" not in data:
+        raise ValueError(f"Expected dict with 'traceEvents' key in {trace_path}")
+    
+    return data
 
 
 def _filter_events_by_category(trace_events: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -278,7 +275,7 @@ def _log_linking_statistics(
 def link_user_annotation_to_kernels(
     trace_path: str | Path,
     verbose: bool = False,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Link user_annotation events to kernel events via CUDA runtime correlation.
     
     This function loads a Chrome trace file and:
@@ -299,11 +296,12 @@ def link_user_annotation_to_kernels(
         verbose: If True, print detailed statistics about linking process
         
     Returns:
-        Complete list of trace events with linked gpu_user_annotation events,
+        Complete trace dict with linked gpu_user_annotation events in 'traceEvents',
         ready to be written to a file
     """
     # Load trace file
-    trace_events = _load_chrome_trace(trace_path)
+    trace_data = _load_chrome_trace(trace_path)
+    trace_events = trace_data['traceEvents']
     
     # Separate events by category
     user_annotation_events, gpu_user_annotation_events, cuda_runtime_events, kernel_events = _filter_events_by_category(trace_events)
@@ -312,12 +310,12 @@ def link_user_annotation_to_kernels(
     if not user_annotation_events:
         if verbose:
             logger.info("No user_annotation events found in trace")
-        return trace_events
+        return {**trace_data, 'traceEvents': trace_events}
     
     if not cuda_runtime_events or not kernel_events:
         if verbose:
             logger.info("Missing required event types (cuda_runtime or kernel events)")
-        return trace_events
+        return {**trace_data, 'traceEvents': trace_events}
     
     # Build mapping of gpu_user_annotation events by name
     gpu_ua_by_name = defaultdict(list)
@@ -377,7 +375,7 @@ def link_user_annotation_to_kernels(
     if not new_events:
         if verbose:
             logger.info("No new linked events created")
-        return trace_events
+        return {**trace_data, 'traceEvents': trace_events}
     
     # Filter and replace events
     linked_events, removed_gpu_ua_count = _filter_and_replace_events(
@@ -391,5 +389,5 @@ def link_user_annotation_to_kernels(
             gpu_user_annotation_events, user_annotation_events
         )
     
-    return linked_events
+    return {**trace_data, 'traceEvents': linked_events}
 
