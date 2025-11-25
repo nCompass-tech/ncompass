@@ -1,7 +1,7 @@
 """Adapters for different event formats."""
 
 from typing import Any, Optional
-from ncompasslib.trait import Trait
+from ncompass.types import Trait
 from ..models import ChromeTraceEvent
 
 

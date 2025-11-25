@@ -82,7 +82,7 @@
                                         pkgs.stdenv.cc.cc 
                                     ]}:$LD_LIBRARY_PATH
             export PYTHONPATH="$PWD:$PYTHONPATH"
-            alias publish="python -m publish"
+            alias nc_pkg="python -m nc_pkg"
           '' + venv_pip_pkgs;
         };
       
@@ -92,7 +92,7 @@
           shellHook = 
           ''
             export PYTHONPATH="$PWD:$PYTHONPATH"
-            alias publish="python -m publish"
+            alias nc_pkg="python -m nc_pkg"
           '' + venv_pip_pkgs;
         };
     

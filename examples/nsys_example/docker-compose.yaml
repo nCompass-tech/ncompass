@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - HOST_UID=${UID:-1000}
+        - HOST_GID=${GID:-1000}
     image: nc_nsys_example:0.0.1
     container_name: nsys_example
     privileged: true
@@ -16,14 +19,13 @@ services:
               count: all
               capabilities: [gpu]
     volumes:
-      - ${CURRENT_DIR}:/workspace
-      - ${CURRENT_DIR}/.cache:/root/.cache
-      # ncompass mount is added via docker-compose.ncompass.yaml if ./ncompass exists
+      - ${HOME}:${HOME}
+    working_dir: ${CURRENT_DIR}
     environment:
       - HOST_UID=${UID:-1000}
       - HOST_GID=${GID:-1000}
       - DISPLAY=${DISPLAY:-:0}
+      - HOME=${HOME}
     stdin_open: true
     tty: true
     command: sleep infinity
-

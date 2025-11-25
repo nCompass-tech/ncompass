@@ -5,22 +5,6 @@ import subprocess
 
 from pathlib import Path
 
-def resolve_host_path(path: Path) -> Path:
-    """
-    Resolve a path using HOST_BASE logic.
-    
-    Replaces '/workspace' in the path with HOST_BASE if HOST_BASE is set.
-    
-    Args:
-        path: Path to resolve
-        
-    Returns:
-        Resolved absolute path
-    """
-    host_dir = Path(os.getenv('HOST_BASE', '/workspace'))
-    resolved = Path(str(path.absolute()).replace('/workspace', str(host_dir)))
-    return resolved
-
 def get_compose_files() -> list[str]:
     """
     Get the list of docker compose files to use based on what exists.
@@ -41,27 +25,25 @@ def get_compose_env() -> dict[str, str]:
     """
     Get environment variables needed for docker compose commands.
     
-    Sets up CURRENT_DIR and NCOMPASS_DIR using HOST_BASE resolution logic.
+    Sets up CURRENT_DIR, HOME, UID, GID, and DISPLAY for docker compose.
     
     Returns:
         Dictionary of environment variables
     """
-    env = {}
+    env = os.environ.copy()
     
-    # Resolve current directory using HOST_BASE logic
-    current_dir = resolve_host_path(Path.cwd())
-    env['CURRENT_DIR'] = str(current_dir.absolute())
+    # Set current directory (paths are now identical between host and container)
+    env['CURRENT_DIR'] = str(Path.cwd().absolute())
+    
+    # Set HOME if not already set
+    if 'HOME' not in env:
+        env['HOME'] = str(Path.home())
     
     # Set UID, GID, DISPLAY
     env['UID'] = str(os.getuid())
     env['GID'] = str(os.getgid())
-    env['DISPLAY'] = os.environ.get('DISPLAY', ':0')
-    
-    # Check if ncompass directory exists and set NCOMPASS_DIR
-    ncompass_dir = Path("./ncompass")
-    if ncompass_dir.exists():
-        ncompass_resolved = resolve_host_path(ncompass_dir)
-        env['NCOMPASS_DIR'] = str(ncompass_resolved.absolute())
+    if 'DISPLAY' not in env:
+        env['DISPLAY'] = ':0'
     
     return env
 

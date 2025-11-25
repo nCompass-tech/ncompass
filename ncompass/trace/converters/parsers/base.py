@@ -6,7 +6,7 @@ from typing import Any
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..schema import table_exists
-from ncompasslib.trait import Trait
+from ncompass.types import Trait
 
 from ncompass.trace.infra.utils import logger
 

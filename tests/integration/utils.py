@@ -5,27 +5,11 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-def resolve_host_path(path: Path) -> Path:
-    """
-    Resolve a path using HOST_BASE logic.
-    
-    Replaces '/workspace' in the path with HOST_BASE if HOST_BASE is set.
-    
-    Args:
-        path: Path to resolve
-        
-    Returns:
-        Resolved absolute path
-    """
-    host_dir = Path(os.getenv('HOST_BASE', '/workspace'))
-    resolved = Path(str(path.absolute()).replace('/workspace', str(host_dir)))
-    return resolved
-
 def _get_compose_env(example_dir: Path) -> dict[str, str]:
     """
     Get environment variables needed for docker compose commands.
     
-    Sets up CURRENT_DIR and NCOMPASS_DIR using HOST_BASE resolution logic.
+    Sets up CURRENT_DIR, HOME, UID, GID, and DISPLAY for docker compose.
     
     Args:
         example_dir: Example directory path
@@ -33,22 +17,20 @@ def _get_compose_env(example_dir: Path) -> dict[str, str]:
     Returns:
         Dictionary of environment variables
     """
-    env = {}
+    env = os.environ.copy()
     
-    # Resolve example directory using HOST_BASE logic
-    example_dir_resolved = resolve_host_path(example_dir)
-    env['CURRENT_DIR'] = str(example_dir_resolved.absolute())
+    # Set current directory (paths are now identical between host and container)
+    env['CURRENT_DIR'] = str(example_dir.absolute())
+    
+    # Set HOME if not already set
+    if 'HOME' not in env:
+        env['HOME'] = str(Path.home())
     
     # Set UID, GID, DISPLAY
     env['UID'] = str(os.getuid())
     env['GID'] = str(os.getgid())
-    env['DISPLAY'] = os.environ.get('DISPLAY', ':0')
-    
-    # Check if ncompass directory exists and set NCOMPASS_DIR
-    ncompass_dir = example_dir / "ncompass"
-    if ncompass_dir.exists():
-        ncompass_resolved = resolve_host_path(ncompass_dir)
-        env['NCOMPASS_DIR'] = str(ncompass_resolved.absolute())
+    if 'DISPLAY' not in env:
+        env['DISPLAY'] = ':0'
 
     return env
 
@@ -114,7 +96,7 @@ def run_docker_command(
     Args:
         image_name: Docker image name (used to identify service in docker-compose)
         command: Command to run (list of strings)
-        workdir: Working directory on host (will be mounted to /workspace)
+        workdir: Working directory on host
         example_dir: Example directory containing docker-compose.yaml
         mounts: Additional mounts as {host_path: container_path} (not used with docker-compose)
         env_vars: Environment variables as {key: value}
@@ -125,12 +107,11 @@ def run_docker_command(
     # Service name matches the directory name (as defined in docker-compose.yaml)
     service_name = example_dir.name
     
-    # Set up base environment variables using _get_compose_env
+    # Set up base environment variables
     env = _get_compose_env(example_dir)
     
     # Override CURRENT_DIR with workdir (for test runs, we mount workdir, not example_dir)
-    workdir_resolved = resolve_host_path(workdir)
-    env['CURRENT_DIR'] = str(workdir_resolved.absolute())
+    env['CURRENT_DIR'] = str(workdir.absolute())
     
     # Add additional environment variables if provided
     if env_vars:
@@ -143,11 +124,9 @@ def run_docker_command(
     # Build compose file list: base + ncompass (if exists)
     compose_files = ["-f", "docker-compose.yaml"]
     
-    # Check if ncompass exists in workdir and update NCOMPASS_DIR
+    # Check if ncompass exists in workdir
     if ncompass_dir.exists():
         compose_files.extend(["-f", "docker-compose.ncompass.yaml"])
-        ncompass_resolved = resolve_host_path(ncompass_dir)
-        env['NCOMPASS_DIR'] = str(ncompass_resolved.absolute())
     
     # Change to example directory to run docker compose
     original_cwd = os.getcwd()
