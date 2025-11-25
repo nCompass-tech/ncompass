@@ -2,7 +2,7 @@
 """
 nCompass PyPI Publishing Script
 
-Converts the bash publish.sh script to Python with YAML configuration support.
+Converts the bash script to Python with YAML configuration support.
 """
 
 import argparse
@@ -218,13 +218,24 @@ def install_build_tools() -> None:
     print()
 
 
-def run_tests(skip_tests: bool) -> None:
+def run_tests(skip_tests: bool, unit_only: bool = False, integration_only: bool = False) -> None:
     """Run test suite."""
     if skip_tests:
         log_warning("Skipping tests (skip_tests=true in config or SKIP_TESTS=true)")
         return
     
-    log_info("Running test suite...")
+    # Determine test path based on flags
+    if unit_only and not integration_only:
+        test_path = "tests/unit/"
+        log_info("Running unit tests only...")
+    elif integration_only and not unit_only:
+        test_path = "tests/integration/"
+        log_info("Running integration tests only...")
+    else:
+        # Both flags set or neither flag set - run all tests
+        test_path = "tests/"
+        log_info("Running test suite...")
+    
     # Install dev dependencies (ignore errors)
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", ".[dev]"],
@@ -233,7 +244,7 @@ def run_tests(skip_tests: bool) -> None:
     )
     
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "--cov=ncompass", "--cov-fail-under=80", "-q"]
+        [sys.executable, "-m", "pytest", test_path, "--cov=ncompass", "--cov-fail-under=80", "-q"]
     )
     
     if result.returncode != 0:
@@ -409,6 +420,12 @@ Modes (required):
   --test                Upload to TestPyPI
   --prod                Upload to PyPI
 
+Test filtering options:
+  --unit                Run only unit tests from tests/unit/
+  --integration         Run only integration tests from tests/integration/
+                        If neither is specified, all tests are run
+                        If both are specified, all tests are run
+
 Configuration:
   Configuration is loaded from nc_pkg/config.yaml (if present) or environment variables.
   Environment variables take precedence over YAML config.
@@ -433,6 +450,8 @@ Options in nc_pkg/config.yaml or env vars:
 Examples:
   SKIP_TESTS=true {script_name} --test
   PYPI_TOKEN=... {script_name} --prod
+  {script_name} --test --unit
+  {script_name} --test --integration
 """
     print(help_text)
 
@@ -452,6 +471,16 @@ def main() -> None:
         "--prod",
         action="store_true",
         help="Upload to PyPI"
+    )
+    parser.add_argument(
+        "--unit",
+        action="store_true",
+        help="Run only unit tests from tests/unit/"
+    )
+    parser.add_argument(
+        "--integration",
+        action="store_true",
+        help="Run only integration tests from tests/integration/"
     )
     
     args = parser.parse_args()
@@ -516,7 +545,7 @@ def main() -> None:
     install_build_tools()
     
     # Run tests
-    run_tests(skip_tests)
+    run_tests(skip_tests, args.unit, args.integration)
     
     # Run quality checks
     run_quality_checks(skip_checks)

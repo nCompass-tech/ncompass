@@ -1,9 +1,5 @@
-# The vLLM Dockerfile is used to construct vLLM image that can be directly used
-# to run the OpenAI compatible server.
-
-# Please update any changes made here to
-# docs/source/dev/dockerfile/dockerfile.rst and
-# docs/source/assets/dev/dockerfile-stages-dependency.png
+# Dockerfile for basic_example
+# Provides environment for PyTorch profiling with ncompass
 
 ARG CUDA_VERSION=12.9.1
 
@@ -15,6 +11,8 @@ SHELL ["/bin/bash", "-c"]
 
 ARG CUDA_VERSION=12.9.1
 ARG PYTHON_VERSION=3.12
+ARG HOST_UID=1000
+ARG HOST_GID=1000
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -42,8 +40,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 # or future versions of triton.
 RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
 
-WORKDIR /workspace
-
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install uv
 
@@ -52,8 +48,31 @@ RUN ln -sf /usr/local/cuda/lib64/libcudart.so.12 /usr/local/cuda/lib64/libcudart
 RUN echo "set -o vi" >> ~/.bashrc
 RUN echo "source /opt/venv/bin/activate" >> ~/.bashrc
 
-COPY requirements.txt /workspace/requirements.txt
-RUN uv pip install -r /workspace/requirements.txt 
+COPY requirements.txt /tmp/requirements.txt
+RUN uv pip install -r /tmp/requirements.txt 
 
-# Accept vLLM wheel filename via build-arg and copy wheels from build_whls/
+# Create user with host UID/GID for development (avoids permission issues)
+# Handle case where UID/GID may already exist in base image (e.g., ubuntu user with UID 1000)
+RUN existing_user=$(getent passwd ${HOST_UID} | cut -d: -f1 || echo ""); \
+    if [ -n "$existing_user" ] && [ "$existing_user" != "ncuser" ]; then \
+        usermod -l ncuser -d /home/ncuser -m "$existing_user"; \
+        groupmod -n ncuser $(id -gn ncuser) 2>/dev/null || true; \
+    elif [ -z "$existing_user" ]; then \
+        groupadd -g ${HOST_GID} ncuser 2>/dev/null || true; \
+        useradd -m -u ${HOST_UID} -g ${HOST_GID} -s /bin/bash ncuser; \
+    fi && \
+    usermod -aG sudo ncuser && \
+    usermod -s /bin/bash ncuser && \
+    echo "ncuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Set permissions for venv
+RUN chown -R ${HOST_UID}:${HOST_GID} /opt/venv
+
+# Copy bashrc configuration to ncuser
+RUN cp /root/.bashrc /home/ncuser/.bashrc \
+    && chown ${HOST_UID}:${HOST_GID} /home/ncuser/.bashrc
+
+# Switch to ncuser for default operation
+USER ncuser
+
 ENV PYTHONPATH=/workspace

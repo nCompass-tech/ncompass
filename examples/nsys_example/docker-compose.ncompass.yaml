@@ -1,9 +1,6 @@
 services:
   nsys_example:
-    volumes:
-      - ${NCOMPASS_DIR}:/workspace/ncompass
     command: 
       - /bin/bash
       - -c
       - "uv pip uninstall ncompass && sleep infinity"
-

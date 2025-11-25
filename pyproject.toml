@@ -40,7 +40,6 @@ classifiers = [
 
 dependencies = [
     "requests>=2.28.0",
-    "ncompasslib>=0.0.1.post7",
     "pydantic>2.0.0",
     "torch>=2.0.0",
 ]
@@ -132,10 +131,6 @@ warn_no_return = true
 show_error_codes = true
 pretty = true
 exclude = ["tests/", "examples/", "docs/", "build/", "dist/"]
-
-[[tool.mypy.overrides]]
-module = "ncompasslib.*"
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "torch.*"

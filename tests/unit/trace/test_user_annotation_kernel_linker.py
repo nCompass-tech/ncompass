@@ -11,6 +11,10 @@ from unittest.mock import patch, MagicMock, mock_open
 from ncompass.trace.converters.linker.user_annotation_linker import (
     link_user_annotation_to_kernels,
     _load_chrome_trace,
+    _filter_events_by_category,
+    _determine_device_pid_tid,
+    _create_gpu_user_annotation_event,
+    _filter_and_replace_events,
 )
 from ncompass.trace.converters.linker.adapters import ChromeTraceEventAdapter
 from ncompass.trace.converters.linker.algorithms import find_overlapping_intervals
@@ -489,11 +493,285 @@ class TestFindOverlappingCudaRuntime(unittest.TestCase):
         self.assertIn(("annotation2", 200.0, 1, 1), result)
 
 
+class TestFilterEventsByCategory(unittest.TestCase):
+    """Test cases for _filter_events_by_category function."""
+
+    def test_filter_events_by_category_basic(self):
+        """Test basic filtering of all 4 categories."""
+        trace_events = [
+            {"name": "ua1", "cat": "user_annotation", "ph": "X"},
+            {"name": "gpu_ua1", "cat": "gpu_user_annotation", "ph": "X"},
+            {"name": "cuda1", "cat": "cuda_runtime", "ph": "X"},
+            {"name": "kernel1", "cat": "kernel", "ph": "X"},
+            {"name": "other1", "cat": "other", "ph": "X"},
+        ]
+        
+        ua, gpu_ua, cuda_runtime, kernels = _filter_events_by_category(trace_events)
+        
+        self.assertEqual(len(ua), 1)
+        self.assertEqual(ua[0]["name"], "ua1")
+        self.assertEqual(len(gpu_ua), 1)
+        self.assertEqual(gpu_ua[0]["name"], "gpu_ua1")
+        self.assertEqual(len(cuda_runtime), 1)
+        self.assertEqual(cuda_runtime[0]["name"], "cuda1")
+        self.assertEqual(len(kernels), 1)
+        self.assertEqual(kernels[0]["name"], "kernel1")
+
+    def test_filter_events_by_category_empty_input(self):
+        """Test with empty input list."""
+        ua, gpu_ua, cuda_runtime, kernels = _filter_events_by_category([])
+        
+        self.assertEqual(len(ua), 0)
+        self.assertEqual(len(gpu_ua), 0)
+        self.assertEqual(len(cuda_runtime), 0)
+        self.assertEqual(len(kernels), 0)
+
+    def test_filter_events_by_category_only_x_phase(self):
+        """Test that only ph='X' events are captured."""
+        trace_events = [
+            {"name": "ua_x", "cat": "user_annotation", "ph": "X"},
+            {"name": "ua_b", "cat": "user_annotation", "ph": "B"},  # Begin phase
+            {"name": "ua_e", "cat": "user_annotation", "ph": "E"},  # End phase
+            {"name": "kernel_x", "cat": "kernel", "ph": "X"},
+            {"name": "kernel_m", "cat": "kernel", "ph": "M"},  # Metadata phase
+        ]
+        
+        ua, gpu_ua, cuda_runtime, kernels = _filter_events_by_category(trace_events)
+        
+        self.assertEqual(len(ua), 1)
+        self.assertEqual(ua[0]["name"], "ua_x")
+        self.assertEqual(len(kernels), 1)
+        self.assertEqual(kernels[0]["name"], "kernel_x")
+
+    def test_filter_events_by_category_no_category(self):
+        """Test events without category are not captured."""
+        trace_events = [
+            {"name": "no_cat", "ph": "X"},  # Missing cat
+            {"name": "empty_cat", "cat": "", "ph": "X"},  # Empty cat
+            {"name": "ua1", "cat": "user_annotation", "ph": "X"},
+        ]
+        
+        ua, gpu_ua, cuda_runtime, kernels = _filter_events_by_category(trace_events)
+        
+        self.assertEqual(len(ua), 1)
+        self.assertEqual(ua[0]["name"], "ua1")
+        self.assertEqual(len(gpu_ua), 0)
+        self.assertEqual(len(cuda_runtime), 0)
+        self.assertEqual(len(kernels), 0)
+
+
+class TestDetermineDevicePidTid(unittest.TestCase):
+    """Test cases for _determine_device_pid_tid function."""
+
+    def test_determine_device_pid_tid_from_existing_gpu_ua(self):
+        """Test priority 1: Use pid/tid from existing gpu_user_annotation."""
+        ua_name = "forward"
+        found_kernels = [
+            {"pid": 0, "tid": 0, "args": {"device": 0}},
+        ]
+        gpu_ua_by_name = {
+            "forward": [{"pid": 99, "tid": 88}],  # Should use this
+        }
+        
+        pid, tid = _determine_device_pid_tid(ua_name, found_kernels, gpu_ua_by_name)
+        
+        self.assertEqual(pid, 99)
+        self.assertEqual(tid, 88)
+
+    def test_determine_device_pid_tid_pytorch_format(self):
+        """Test priority 2a: PyTorch format with device in args."""
+        ua_name = "forward"
+        found_kernels = [
+            {"pid": 0, "tid": 5, "args": {"device": 2}},  # Should use device=2
+        ]
+        gpu_ua_by_name = {}  # No existing gpu_ua
+        
+        pid, tid = _determine_device_pid_tid(ua_name, found_kernels, gpu_ua_by_name)
+        
+        self.assertEqual(pid, 2)  # From device in args
+        self.assertEqual(tid, 5)
+
+    def test_determine_device_pid_tid_nsys_format(self):
+        """Test priority 2b: nsys2chrome format with 'Device X' string."""
+        ua_name = "forward"
+        found_kernels = [
+            {"pid": "Device 1", "tid": 7},
+        ]
+        gpu_ua_by_name = {}  # No existing gpu_ua
+        
+        pid, tid = _determine_device_pid_tid(ua_name, found_kernels, gpu_ua_by_name)
+        
+        self.assertEqual(pid, "Device 1")
+        self.assertEqual(tid, 7)
+
+    def test_determine_device_pid_tid_fallback(self):
+        """Test fallback to (0, 0) when no valid source found."""
+        ua_name = "forward"
+        found_kernels = []  # No kernels
+        gpu_ua_by_name = {}  # No existing gpu_ua
+        
+        pid, tid = _determine_device_pid_tid(ua_name, found_kernels, gpu_ua_by_name)
+        
+        self.assertEqual(pid, 0)
+        self.assertEqual(tid, 0)
+
+
+class TestCreateGpuUserAnnotationEvent(unittest.TestCase):
+    """Test cases for _create_gpu_user_annotation_event function."""
+
+    def test_create_gpu_user_annotation_event_basic(self):
+        """Test basic event creation with all fields."""
+        ua_event = {
+            "name": "forward",
+            "ts": 100.0,
+            "dur": 50.0,
+            "pid": 1,
+            "tid": 1,
+        }
+        kernel_start_time = 120.0
+        kernel_end_time = 180.0
+        found_kernels = [{"name": "kernel1"}, {"name": "kernel2"}]
+        device_pid = 0
+        device_tid = 7
+        
+        result = _create_gpu_user_annotation_event(
+            ua_event, kernel_start_time, kernel_end_time,
+            found_kernels, device_pid, device_tid
+        )
+        
+        self.assertEqual(result["name"], "forward")
+        self.assertEqual(result["ph"], "X")
+        self.assertEqual(result["cat"], "gpu_user_annotation")
+        self.assertEqual(result["ts"], 120.0)
+        self.assertEqual(result["dur"], 60.0)  # 180 - 120
+        self.assertEqual(result["pid"], 0)
+        self.assertEqual(result["tid"], 7)
+
+    def test_create_gpu_user_annotation_event_args_structure(self):
+        """Test args structure with original values."""
+        ua_event = {
+            "name": "backward",
+            "ts": 200.0,
+            "dur": 100.0,
+            "pid": 2,
+            "tid": 3,
+        }
+        kernel_start_time = 250.0
+        kernel_end_time = 350.0
+        found_kernels = [{"name": "kernel1"}]
+        device_pid = "Device 0"
+        device_tid = 5
+        
+        result = _create_gpu_user_annotation_event(
+            ua_event, kernel_start_time, kernel_end_time,
+            found_kernels, device_pid, device_tid
+        )
+        
+        # Check args contains original values
+        self.assertEqual(result["args"]["original_ts"], 200.0)
+        self.assertEqual(result["args"]["original_dur"], 100.0)
+        self.assertEqual(result["args"]["kernel_count"], 1)
+        self.assertEqual(result["args"]["original_pid"], 2)
+        self.assertEqual(result["args"]["original_tid"], 3)
+
+
+class TestFilterAndReplaceEvents(unittest.TestCase):
+    """Test cases for _filter_and_replace_events function."""
+
+    def test_filter_and_replace_events_removes_gpu_ua_when_both_exist(self):
+        """Test that gpu_user_annotation is removed when both it and user_annotation exist."""
+        trace_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+            {"name": "forward", "cat": "gpu_user_annotation", "ph": "X"},  # Should be removed
+            {"name": "kernel1", "cat": "kernel", "ph": "X"},
+        ]
+        new_events = [
+            {"name": "forward", "cat": "gpu_user_annotation", "ts": 100.0},  # New event
+        ]
+        gpu_user_annotation_events = [
+            {"name": "forward", "cat": "gpu_user_annotation", "ph": "X"},
+        ]
+        user_annotation_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+        ]
+        
+        filtered_events, removed_count = _filter_and_replace_events(
+            trace_events, new_events, gpu_user_annotation_events, user_annotation_events
+        )
+        
+        # Old gpu_user_annotation should be removed
+        self.assertEqual(removed_count, 1)
+        # Check that the new event is included and old gpu_ua is removed
+        gpu_ua_events = [e for e in filtered_events if e.get("cat") == "gpu_user_annotation"]
+        self.assertEqual(len(gpu_ua_events), 1)
+        self.assertEqual(gpu_ua_events[0]["ts"], 100.0)  # New event
+
+    def test_filter_and_replace_events_keeps_user_annotation(self):
+        """Test that user_annotation events are always kept."""
+        trace_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+            {"name": "kernel1", "cat": "kernel", "ph": "X"},
+        ]
+        new_events = [
+            {"name": "forward", "cat": "gpu_user_annotation", "ts": 100.0},
+        ]
+        gpu_user_annotation_events = []  # No existing gpu_ua
+        user_annotation_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+        ]
+        
+        filtered_events, removed_count = _filter_and_replace_events(
+            trace_events, new_events, gpu_user_annotation_events, user_annotation_events
+        )
+        
+        # No events should be removed
+        self.assertEqual(removed_count, 0)
+        # user_annotation should still be there
+        ua_events = [e for e in filtered_events if e.get("cat") == "user_annotation"]
+        self.assertEqual(len(ua_events), 1)
+        # New gpu_user_annotation should be added
+        gpu_ua_events = [e for e in filtered_events if e.get("cat") == "gpu_user_annotation"]
+        self.assertEqual(len(gpu_ua_events), 1)
+
+    def test_filter_and_replace_events_correct_count(self):
+        """Test that removed_gpu_ua_count is accurate."""
+        trace_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+            {"name": "forward", "cat": "gpu_user_annotation", "ph": "X"},  # Will be removed
+            {"name": "backward", "cat": "user_annotation", "ph": "X"},
+            {"name": "backward", "cat": "gpu_user_annotation", "ph": "X"},  # Will be removed
+            {"name": "only_gpu_ua", "cat": "gpu_user_annotation", "ph": "X"},  # No ua pair, kept
+        ]
+        new_events = [
+            {"name": "forward", "cat": "gpu_user_annotation", "ts": 100.0},
+            {"name": "backward", "cat": "gpu_user_annotation", "ts": 200.0},
+        ]
+        gpu_user_annotation_events = [
+            {"name": "forward", "cat": "gpu_user_annotation", "ph": "X"},
+            {"name": "backward", "cat": "gpu_user_annotation", "ph": "X"},
+            {"name": "only_gpu_ua", "cat": "gpu_user_annotation", "ph": "X"},
+        ]
+        user_annotation_events = [
+            {"name": "forward", "cat": "user_annotation", "ph": "X"},
+            {"name": "backward", "cat": "user_annotation", "ph": "X"},
+        ]
+        
+        filtered_events, removed_count = _filter_and_replace_events(
+            trace_events, new_events, gpu_user_annotation_events, user_annotation_events
+        )
+        
+        # 2 gpu_user_annotation events should be removed (forward and backward)
+        self.assertEqual(removed_count, 2)
+        # only_gpu_ua should still be there (no matching ua)
+        gpu_ua_events = [e for e in filtered_events if e.get("cat") == "gpu_user_annotation"]
+        self.assertEqual(len(gpu_ua_events), 3)  # 2 new + 1 existing (only_gpu_ua)
+
+
 class TestLoadChromeTrace(unittest.TestCase):
     """Test cases for _load_chrome_trace function."""
 
-    def test_load_chrome_trace_array_format(self):
-        """Test loading array format trace."""
+    def test_load_chrome_trace_array_format_raises_error(self):
+        """Test loading array format trace raises ValueError (no longer supported)."""
         trace_data = [
             {"name": "event1", "ph": "X", "ts": 100.0},
             {"name": "event2", "ph": "X", "ts": 200.0},
@@ -503,15 +781,14 @@ class TestLoadChromeTrace(unittest.TestCase):
             trace_path = f.name
 
         try:
-            result = _load_chrome_trace(trace_path)
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0]["name"], "event1")
-            self.assertEqual(result[1]["name"], "event2")
+            with self.assertRaises(ValueError) as context:
+                _load_chrome_trace(trace_path)
+            self.assertIn("Expected dict with 'traceEvents' key", str(context.exception))
         finally:
             Path(trace_path).unlink()
 
     def test_load_chrome_trace_object_format(self):
-        """Test loading object format with traceEvents key."""
+        """Test loading object format with traceEvents key returns full dict."""
         trace_data = {
             "traceEvents": [
                 {"name": "event1", "ph": "X", "ts": 100.0},
@@ -525,9 +802,14 @@ class TestLoadChromeTrace(unittest.TestCase):
 
         try:
             result = _load_chrome_trace(trace_path)
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0]["name"], "event1")
-            self.assertEqual(result[1]["name"], "event2")
+            # Should return full dict with traceEvents key
+            self.assertIsInstance(result, dict)
+            self.assertIn("traceEvents", result)
+            self.assertEqual(len(result["traceEvents"]), 2)
+            self.assertEqual(result["traceEvents"][0]["name"], "event1")
+            self.assertEqual(result["traceEvents"][1]["name"], "event2")
+            # Should preserve other metadata
+            self.assertEqual(result["otherMetadata"], {"key": "value"})
         finally:
             Path(trace_path).unlink()
 
@@ -541,7 +823,7 @@ class TestLoadChromeTrace(unittest.TestCase):
         try:
             with self.assertRaises(ValueError) as context:
                 _load_chrome_trace(trace_path)
-            self.assertIn("Unexpected trace format", str(context.exception))
+            self.assertIn("Expected dict with 'traceEvents' key", str(context.exception))
         finally:
             Path(trace_path).unlink()
 
@@ -564,14 +846,17 @@ class TestLoadChromeTrace(unittest.TestCase):
 
     def test_load_chrome_trace_path_object(self):
         """Test loading with Path object instead of string."""
-        trace_data = [{"name": "event1", "ph": "X", "ts": 100.0}]
+        trace_data = {
+            "traceEvents": [{"name": "event1", "ph": "X", "ts": 100.0}]
+        }
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(trace_data, f)
             trace_path = Path(f.name)
 
         try:
             result = _load_chrome_trace(trace_path)
-            self.assertEqual(len(result), 1)
+            self.assertIsInstance(result, dict)
+            self.assertEqual(len(result["traceEvents"]), 1)
         finally:
             trace_path.unlink()
 
@@ -633,7 +918,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should create a new gpu_user_annotation event and keep user_annotation
         gpu_ua_events = [
@@ -662,7 +948,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should return original trace unchanged
         self.assertEqual(len(result), 1)
@@ -682,7 +969,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should return original trace unchanged
         self.assertEqual(len(result), 1)
@@ -709,7 +997,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should return original trace unchanged
         self.assertEqual(len(result), 2)
@@ -759,7 +1048,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should replace old gpu_user_annotation with new one, but keep user_annotation
         gpu_ua_events = [
@@ -807,7 +1097,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should keep user_annotation and add gpu_user_annotation
         gpu_ua_events = [
@@ -834,7 +1125,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should return original trace unchanged (no user_annotation to link)
         self.assertEqual(len(result), 1)
@@ -876,7 +1168,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
@@ -922,7 +1215,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
@@ -978,7 +1272,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
@@ -1025,7 +1320,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should not create linked event (no correlation)
         gpu_ua_events = [
@@ -1069,7 +1365,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should not create linked event (no matching correlation)
         gpu_ua_events = [
@@ -1123,7 +1420,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
@@ -1170,7 +1468,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path, verbose=True)
+        full_result = link_user_annotation_to_kernels(trace_path, verbose=True)
+        result = full_result['traceEvents']
 
         # Verify logger was called
         self.assertTrue(mock_logger.info.called)
@@ -1216,7 +1515,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         # Should return original trace unchanged
         self.assertEqual(len(result), 3)
@@ -1260,7 +1560,8 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
             ]
         }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
@@ -1272,39 +1573,42 @@ class TestLinkUserAnnotationToKernels(unittest.TestCase):
 
     def test_link_user_annotation_to_kernels_array_format_trace(self):
         """Test with array format trace (not object with traceEvents)."""
-        trace_data = [
-            {
-                "name": "forward",
-                "cat": "user_annotation",
-                "ph": "X",
-                "ts": 100.0,
-                "dur": 50.0,
-                "pid": 1,
-                "tid": 1,
-            },
-            {
-                "name": "cudaLaunchKernel",
-                "cat": "cuda_runtime",
-                "ph": "X",
-                "ts": 110.0,
-                "dur": 20.0,
-                "pid": 1,
-                "tid": 1,
-                "args": {"correlationId": 12345},
-            },
-            {
-                "name": "kernel",
-                "cat": "kernel",
-                "ph": "X",
-                "ts": 120.0,
-                "dur": 30.0,
-                "pid": 0,
-                "tid": 0,
-                "args": {"correlationId": 12345, "device": 0},
-            },
-        ]
+        trace_data = {
+            "traceEvents": [
+                {
+                    "name": "forward",
+                    "cat": "user_annotation",
+                    "ph": "X",
+                    "ts": 100.0,
+                    "dur": 50.0,
+                    "pid": 1,
+                    "tid": 1,
+                },
+                {
+                    "name": "cudaLaunchKernel",
+                    "cat": "cuda_runtime",
+                    "ph": "X",
+                    "ts": 110.0,
+                    "dur": 20.0,
+                    "pid": 1,
+                    "tid": 1,
+                    "args": {"correlationId": 12345},
+                },
+                {
+                    "name": "kernel",
+                    "cat": "kernel",
+                    "ph": "X",
+                    "ts": 120.0,
+                    "dur": 30.0,
+                    "pid": 0,
+                    "tid": 0,
+                    "args": {"correlationId": 12345, "device": 0},
+                },
+            ]
+        }
         trace_path = self._create_trace_file(trace_data)
-        result = link_user_annotation_to_kernels(trace_path)
+        full_result = link_user_annotation_to_kernels(trace_path)
+        result = full_result['traceEvents']
 
         gpu_ua_events = [
             e for e in result if e.get("cat") == "gpu_user_annotation"
