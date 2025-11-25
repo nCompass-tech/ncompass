@@ -595,7 +595,7 @@ class TestUpdateModuleReferencesLocalImports(unittest.TestCase):
         
         # Determine the fully qualified name
         model_file = os.path.join(test_data_dir, 'model.py')
-        fully_qualified_name = 'tests.trace._data.model'
+        fully_qualified_name = 'tests.unit.trace._data.model'
         
         # Store references in dict (accessible to gc.get_referrers)
         self.test_refs['model'] = old_model_module
@@ -877,7 +877,7 @@ class TestClearCachedModulesLocalImports(unittest.TestCase):
         old_file = old_model.__file__
         
         # Clear with fully qualified name
-        fully_qualified_name = 'tests.trace._data.model'
+        fully_qualified_name = 'tests.unit.trace._data.model'
         targets = {fully_qualified_name: ModuleConfig(filePath=run_file)}
         old_modules = clear_cached_modules(targets)
         

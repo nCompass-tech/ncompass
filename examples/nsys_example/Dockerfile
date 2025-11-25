@@ -11,6 +11,8 @@ SHELL ["/bin/bash", "-c"]
 
 ARG CUDA_VERSION=12.9.1
 ARG PYTHON_VERSION=3.12
+ARG HOST_UID=1000
+ARG HOST_GID=1000
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -49,15 +51,13 @@ RUN apt-get update -y \
 # Verify nsys installation
 RUN (nsys --version || echo "Warning: nsys not found in PATH. Ensure it's installed correctly.")
 
-WORKDIR /workspace
-
 # Install uv for faster pip operations
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install uv
 
 # Copy requirements and install Python dependencies
-COPY requirements.txt /workspace/requirements.txt
-RUN uv pip install -r /workspace/requirements.txt 
+COPY requirements.txt /tmp/requirements.txt
+RUN uv pip install -r /tmp/requirements.txt 
 
 # Set up environment
 ENV PYTHONPATH=/workspace
@@ -68,3 +68,26 @@ ENV PATH="/usr/local/nsight-systems/bin:${PATH}"
 RUN echo "set -o vi" >> ~/.bashrc
 RUN echo "source /opt/venv/bin/activate" >> ~/.bashrc
 
+# Create user with host UID/GID for development (avoids permission issues)
+# Handle case where UID/GID may already exist in base image (e.g., ubuntu user with UID 1000)
+RUN existing_user=$(getent passwd ${HOST_UID} | cut -d: -f1 || echo ""); \
+    if [ -n "$existing_user" ] && [ "$existing_user" != "ncuser" ]; then \
+        usermod -l ncuser -d /home/ncuser -m "$existing_user"; \
+        groupmod -n ncuser $(id -gn ncuser) 2>/dev/null || true; \
+    elif [ -z "$existing_user" ]; then \
+        groupadd -g ${HOST_GID} ncuser 2>/dev/null || true; \
+        useradd -m -u ${HOST_UID} -g ${HOST_GID} -s /bin/bash ncuser; \
+    fi && \
+    usermod -aG sudo ncuser && \
+    usermod -s /bin/bash ncuser && \
+    echo "ncuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Set permissions for venv
+RUN chown -R ${HOST_UID}:${HOST_GID} /opt/venv
+
+# Copy bashrc configuration to ncuser
+RUN cp /root/.bashrc /home/ncuser/.bashrc \
+    && chown ${HOST_UID}:${HOST_GID} /home/ncuser/.bashrc
+
+# Switch to ncuser for default operation
+USER ncuser

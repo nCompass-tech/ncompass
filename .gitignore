@@ -213,6 +213,6 @@ venv-lsp/
 reqs/
 nc_reqs.txt
 
-publish/config.yaml
+nc_pkg/config.yaml
 
 .traces/

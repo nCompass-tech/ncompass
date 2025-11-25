@@ -31,7 +31,7 @@ app = modal.App("example-torch-profiling")
 # inject trace markers for profiling 
 image = modal.Image.debian_slim(python_version="3.12")\
     .uv_pip_install("torch")\
-    .uv_pip_install("requests>=2.28.0", "pydantic>=2.0", "ncompasslib")\
+    .uv_pip_install("requests>=2.28.0", "pydantic>=2.0")\
     .uv_pip_install("ncompass>=0.1.7")\
     .uv_pip_install("pathlib")
 

@@ -7,7 +7,7 @@ try:
     from typing import Self
 except ImportError:
     from typing_extensions import Self
-from ncompasslib.immutable import Immutable, mutate
+from ncompass.types import Immutable, mutate
 
 from ncompass.trace.infra.utils import logger
 

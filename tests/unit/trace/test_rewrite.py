@@ -404,7 +404,7 @@ class TestLocalImports(unittest.TestCase):
         self.assertIsNotNone(old_model_module, "Model should be imported and stored as 'model'")
         
         # Step 2: Call enable_rewrites with fully qualified name
-        fully_qualified_name = 'tests.trace._data.model'
+        fully_qualified_name = 'tests.unit.trace._data.model'
         config = RewriteConfig(
             targets={
                 fully_qualified_name: ModuleConfig(filePath=run_file)
@@ -459,7 +459,7 @@ class TestLocalImports(unittest.TestCase):
         
         # Use a fully qualified name that won't work with standard import
         # This forces the fallback to file path loading
-        fully_qualified_name = 'tests.trace._data.model'
+        fully_qualified_name = 'tests.unit.trace._data.model'
         
         # Create a config with AST rewrites (line range wrapping)
         model_file = os.path.join(self.test_data_dir, 'model.py')
