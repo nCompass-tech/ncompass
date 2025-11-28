@@ -49,7 +49,7 @@ def validate_chrome_trace(events: list[dict[str, Any]]) -> bool:
     return True
 
 
-def write_chrome_trace(output_path: str, events: list[dict[str, Any]]) -> None:
+def write_chrome_trace(output_path: str, events: dict) -> None:
     """Write Chrome Trace events to JSON file.
     
     Args:

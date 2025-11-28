@@ -51,7 +51,7 @@ class CUPTIKernelParser(BaseParser):
             event = ChromeTraceEvent(
                 name=kernel_name,
                 ph="X",
-                cat="cuda",
+                cat="kernel",
                 ts=ns_to_us(row["start"]),
                 dur=ns_to_us(row["end"] - row["start"]),
                 pid=f"Device {device_id}",
