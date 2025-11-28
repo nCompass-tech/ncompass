@@ -301,7 +301,7 @@ class NsysToChromeTraceConverter(Immutable):
         return sorted(events, key=lambda e: (e.ts, e.pid, e.tid))
     
     @mutate
-    def convert(self) -> list[ChromeTraceEvent]:
+    def convert(self) -> dict:
         """Perform the conversion.
         
         Returns:
@@ -326,7 +326,7 @@ class NsysToChromeTraceConverter(Immutable):
         # Sort events
         events = self._sort_events(events)
         
-        return events
+        return {'traceEvents': [e.to_dict() for e in events]}
 
 def convert_file(
     sqlite_path: str,
@@ -347,8 +347,7 @@ def convert_file(
                         .set_options(options)
     
     with converter_ctx as converter:
-        events = converter.convert()
+        chrome_trace = converter.convert()
         # Convert Pydantic models to dicts
-        event_dicts = [event.to_dict() for event in events]
-        write_chrome_trace(output_path, event_dicts)
+        write_chrome_trace(output_path, chrome_trace)
 
