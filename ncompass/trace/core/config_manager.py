@@ -20,8 +20,8 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Tuple
 from copy import deepcopy
-from ncompasslib.trait import Trait
-from ncompasslib.immutable import mutate
+from ncompass.types.trait import Trait
+from ncompass.types.immutable import mutate
 from enum import Enum
 from ncompass.trace.infra.utils import logger, deep_merge
 
