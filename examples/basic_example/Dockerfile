@@ -31,25 +31,6 @@ RUN apt-get update -y \
 
 # Install pip s.t. it will be compatible with our PYTHON_VERSION
 RUN apt-get install -y python3-pip
-RUN python${PYTHON_VERSION} -m venv /opt/venv 
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Workaround for https://github.com/openai/triton/issues/2507 and
-# https://github.com/pytorch/pytorch/issues/107960 -- hopefully
-# this won't be needed for future versions of this docker image
-# or future versions of triton.
-RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install uv
-
-RUN ln -sf /usr/local/cuda/lib64/libcudart.so.12 /usr/local/cuda/lib64/libcudart.so
-
-RUN echo "set -o vi" >> ~/.bashrc
-RUN echo "source /opt/venv/bin/activate" >> ~/.bashrc
-
-COPY requirements.txt /tmp/requirements.txt
-RUN uv pip install -r /tmp/requirements.txt 
 
 # Create user with host UID/GID for development (avoids permission issues)
 # Handle case where UID/GID may already exist in base image (e.g., ubuntu user with UID 1000)
@@ -65,8 +46,32 @@ RUN existing_user=$(getent passwd ${HOST_UID} | cut -d: -f1 || echo ""); \
     usermod -s /bin/bash ncuser && \
     echo "ncuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Set permissions for venv
-RUN chown -R ${HOST_UID}:${HOST_GID} /opt/venv
+# Create /opt/venv directory with correct ownership BEFORE creating venv
+# This way the venv will be created with correct ownership from the start
+RUN mkdir -p /opt/venv && chown ${HOST_UID}:${HOST_GID} /opt/venv
+
+# Create venv as ncuser so it's owned by the correct user from the start
+RUN runuser -u ncuser -- python${PYTHON_VERSION} -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Workaround for https://github.com/openai/triton/issues/2507 and
+# https://github.com/pytorch/pytorch/issues/107960 -- hopefully
+# this won't be needed for future versions of this docker image
+# or future versions of triton.
+RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
+
+# Install packages as ncuser to maintain correct ownership
+RUN --mount=type=cache,target=/home/ncuser/.cache/pip \
+  runuser -u ncuser -- pip install uv
+
+RUN ln -sf /usr/local/cuda/lib64/libcudart.so.12 /usr/local/cuda/lib64/libcudart.so
+
+RUN echo "set -o vi" >> ~/.bashrc
+RUN echo "source /opt/venv/bin/activate" >> ~/.bashrc
+
+COPY requirements.txt /tmp/requirements.txt
+RUN chown ncuser:ncuser /tmp/requirements.txt && \
+    runuser -u ncuser -- uv pip install -r /tmp/requirements.txt
 
 # Copy bashrc configuration to ncuser
 RUN cp /root/.bashrc /home/ncuser/.bashrc \
