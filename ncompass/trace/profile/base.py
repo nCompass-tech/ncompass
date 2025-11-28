@@ -17,7 +17,7 @@ Description: Base profiling context manager.
 """
 
 from typing import Optional, Any
-from ncompasslib.trait import Trait
+from ncompass.types.trait import Trait
 
 
 class ProfileContextBase(Trait):

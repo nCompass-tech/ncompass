@@ -19,7 +19,7 @@ Description: Loader for AST rewriting.
 import ast
 import importlib.abc
 
-from ncompasslib.trait import Trait
+from ncompass.types.trait import Trait
 
 
 class _RewritingLoader(Trait, importlib.abc.SourceLoader):
