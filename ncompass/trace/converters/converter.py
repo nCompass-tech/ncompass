@@ -351,3 +351,88 @@ def convert_file(
         # Convert Pydantic models to dicts
         write_chrome_trace(output_path, chrome_trace)
 
+
+def convert_nsys_report(
+    nsys_rep_path: str,
+    output_path: str,
+    options: ConversionOptions | None = None,
+    keep_sqlite: bool = False
+) -> None:
+    """Convert nsys report (.nsys-rep) to gzip-compressed Chrome Trace JSON.
+    
+    This function performs the full conversion pipeline:
+    1. Converts .nsys-rep to SQLite using nsys CLI
+    2. Converts SQLite to Chrome Trace format
+    3. Writes output as gzip-compressed JSON (.json.gz)
+    
+    Args:
+        nsys_rep_path: Path to input nsys report file (.nsys-rep)
+        output_path: Path to output gzip-compressed JSON file (.json.gz)
+        options: Conversion options (defaults to common activity types)
+        keep_sqlite: If True, keep the intermediate SQLite file
+        
+    Raises:
+        FileNotFoundError: If input file doesn't exist or nsys CLI not found
+        subprocess.CalledProcessError: If nsys export fails
+        RuntimeError: If conversion fails
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    from .utils import write_chrome_trace_gz
+    
+    nsys_rep_file = Path(nsys_rep_path)
+    
+    # Validate input file exists
+    if not nsys_rep_file.exists():
+        raise FileNotFoundError(f"Input file not found: {nsys_rep_path}")
+    
+    # Determine SQLite file path
+    if keep_sqlite:
+        sqlite_path = nsys_rep_file.with_suffix('.sqlite')
+    else:
+        # Use temp file that will be cleaned up
+        temp_dir = tempfile.gettempdir()
+        sqlite_path = Path(temp_dir) / f"{nsys_rep_file.stem}.sqlite"
+    
+    try:
+        # Step 1: Convert nsys-rep to SQLite using nsys CLI
+        export_command = [
+            "nsys", "export",
+            "--type", "sqlite",
+            "--include-json", "true",
+            "--force-overwrite", "true",
+            "-o", str(sqlite_path),
+            str(nsys_rep_file)
+        ]
+        
+        try:
+            subprocess.run(export_command, check=True, capture_output=True, text=True)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                "'nsys' command not found. Please ensure nsys CLI is installed "
+                "and available in your PATH."
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"nsys export failed: {e.stderr}") from e
+        
+        # Step 2 & 3: Convert SQLite to Chrome Trace and write as gzip
+        if options is None:
+            options = ConversionOptions(
+                activity_types=["kernel", "nvtx", "nvtx-kernel", "cuda-api", "osrt", "sched"],
+                include_metadata=True
+            )
+        
+        converter_ctx = NsysToChromeTraceConverter()\
+                            .set_sqlite_path(str(sqlite_path))\
+                            .set_options(options)
+        
+        with converter_ctx as converter:
+            chrome_trace = converter.convert()
+            write_chrome_trace_gz(output_path, chrome_trace)
+    
+    finally:
+        # Clean up SQLite file if not keeping it
+        if not keep_sqlite and sqlite_path.exists():
+            sqlite_path.unlink()
+

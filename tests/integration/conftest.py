@@ -8,8 +8,8 @@ from typing import Generator
 
 import pytest
 
-from tests.integration.utils import (create_symlink,
-                                     remove_symlink)
+from tests.integration.utils.docker import (create_symlink,
+                                            remove_symlink)
 
 @pytest.fixture(scope="function")
 def repo_root() -> Path:

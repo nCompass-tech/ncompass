@@ -61,3 +61,17 @@ def write_chrome_trace(output_path: str, events: dict) -> None:
     with open(output_path, 'w') as f:
         json.dump(events, f)
 
+
+def write_chrome_trace_gz(output_path: str, events: dict) -> None:
+    """Write Chrome Trace events to gzip-compressed JSON file.
+    
+    Args:
+        output_path: Path to output gzip-compressed JSON file (.json.gz)
+        events: Chrome Trace events dictionary
+    """
+    import gzip
+    import json
+    
+    with gzip.open(output_path, 'wt', encoding='utf-8') as f:
+        json.dump(events, f)
+
