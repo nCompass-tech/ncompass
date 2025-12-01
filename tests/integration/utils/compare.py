@@ -4,13 +4,14 @@ Helper script to compare generated files against gold files.
 This script runs inside Docker containers to perform file comparisons.
 
 Usage:
-    python compare_files.py <generated_file> <gold_file>
+    python compare.py <generated_file> <gold_file>
     
 Exit codes:
     0: Files match
     1: Files differ or error occurred
 """
 
+import gzip
 import json
 import sys
 from pathlib import Path
@@ -23,22 +24,40 @@ except ImportError:
     DeepDiff = None
 
 
+def load_json_file(path: Path) -> Any:
+    """
+    Load JSON data from a file, handling both .json and .json.gz formats.
+    
+    Args:
+        path: Path to the JSON file (can be .json or .json.gz)
+        
+    Returns:
+        Parsed JSON data
+    """
+    if path.suffix == ".gz" or str(path).endswith(".json.gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
 def normalize_json_data(data: Any) -> Any:
     """
     Normalize JSON data by removing or normalizing non-deterministic fields.
     
     This includes:
-    - Timestamps
-    - UUIDs
-    - File paths that may differ
+    - Timestamps (ts, timestamp, time, startTime, endTime)
+    - Durations (dur)
+    - IDs (id, uuid, pid, tid)
     - Other non-deterministic fields
     """
     if isinstance(data, dict):
         normalized = {}
         for key, value in data.items():
             # Skip or normalize non-deterministic fields
-            if key in ["ts", "timestamp", "time", "startTime", "endTime"]:
-                # Keep structure but normalize timestamp to 0 for comparison
+            if key in ["ts", "timestamp", "time", "startTime", "endTime", "dur"]:
+                # Keep structure but normalize timestamp/duration to 0 for comparison
                 normalized[key] = 0
             elif key in ["id", "uuid", "pid", "tid"]:
                 # Keep structure but normalize IDs
@@ -57,19 +76,51 @@ def normalize_json_data(data: Any) -> Any:
         return data
 
 
+def sort_trace_events(data: Any) -> Any:
+    """
+    Sort traceEvents array by (name, cat) for deterministic ordering.
+    
+    Chrome trace format has a top-level 'traceEvents' array that may have
+    events in non-deterministic order. This function sorts them for stable comparison.
+    
+    Args:
+        data: JSON data (expected to be a dict with 'traceEvents' key)
+        
+    Returns:
+        Data with sorted traceEvents
+    """
+    if not isinstance(data, dict):
+        return data
+    
+    result = data.copy()
+    
+    if "traceEvents" in result and isinstance(result["traceEvents"], list):
+        # Sort by (name, cat) tuple, handling missing keys
+        def sort_key(event: Any) -> tuple:
+            if not isinstance(event, dict):
+                return ("", "")
+            name = event.get("name", "") or ""
+            cat = event.get("cat", "") or ""
+            return (name, cat)
+        
+        result["traceEvents"] = sorted(result["traceEvents"], key=sort_key)
+    
+    return result
+
+
 def compare_json_files(generated_path: Path, gold_path: Path) -> tuple[bool, str]:
     """
     Compare two JSON files, handling non-deterministic fields.
+    
+    Supports both .json and .json.gz files. Normalizes timestamps, durations,
+    and IDs, and sorts traceEvents for deterministic comparison.
     
     Returns:
         (match: bool, message: str)
     """
     try:
-        with open(generated_path, "r") as f:
-            generated_data = json.load(f)
-        
-        with open(gold_path, "r") as f:
-            gold_data = json.load(f)
+        generated_data = load_json_file(generated_path)
+        gold_data = load_json_file(gold_path)
     except json.JSONDecodeError as e:
         return False, f"Failed to parse JSON: {e}"
     except Exception as e:
@@ -78,6 +129,10 @@ def compare_json_files(generated_path: Path, gold_path: Path) -> tuple[bool, str
     # Normalize data to remove non-deterministic fields
     normalized_generated = normalize_json_data(generated_data)
     normalized_gold = normalize_json_data(gold_data)
+    
+    # Sort traceEvents for deterministic comparison
+    normalized_generated = sort_trace_events(normalized_generated)
+    normalized_gold = sort_trace_events(normalized_gold)
     
     if DeepDiff is not None:
         # Use deepdiff for detailed comparison
@@ -127,7 +182,7 @@ def compare_files_binary(generated_path: Path, gold_path: Path) -> tuple[bool, s
 def main():
     """Main entry point."""
     if len(sys.argv) != 3:
-        print("Usage: python compare_files.py <generated_file> <gold_file>", file=sys.stderr)
+        print("Usage: python compare.py <generated_file> <gold_file>", file=sys.stderr)
         sys.exit(1)
     
     generated_path = Path(sys.argv[1])
@@ -142,7 +197,13 @@ def main():
         sys.exit(1)
     
     # Determine file type and compare
-    if generated_path.suffix == ".json" and gold_path.suffix == ".json":
+    # Check for JSON files (including .json.gz)
+    gen_is_json = (generated_path.suffix == ".json" or 
+                   str(generated_path).endswith(".json.gz"))
+    gold_is_json = (gold_path.suffix == ".json" or 
+                    str(gold_path).endswith(".json.gz"))
+    
+    if gen_is_json and gold_is_json:
         match, message = compare_json_files(generated_path, gold_path)
     else:
         # Binary comparison

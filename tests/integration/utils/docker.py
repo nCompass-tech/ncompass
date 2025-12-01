@@ -172,3 +172,4 @@ def remove_symlink(path: Path) -> None:
             ["rm", f"{path}"],
             check=True
     )
+

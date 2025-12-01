@@ -2,11 +2,16 @@
 Tests for ncompass.trace.converters.utils module.
 """
 
+import gzip
+import json
+import os
+import tempfile
 import unittest
 
 from ncompass.trace.converters.utils import (
     ns_to_us,
     validate_chrome_trace,
+    write_chrome_trace_gz,
 )
 
 
@@ -230,4 +235,153 @@ class TestValidateChromeTrace(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             validate_chrome_trace(events)
         self.assertIn("Event 1", str(cm.exception))
+
+
+class TestWriteChromeTraceGz(unittest.TestCase):
+    """Test cases for write_chrome_trace_gz function."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up temporary files."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_write_chrome_trace_gz_basic(self):
+        """Test that function writes valid gzip-compressed JSON."""
+        output_path = os.path.join(self.temp_dir, "test.json.gz")
+        events = {"traceEvents": []}
+        
+        write_chrome_trace_gz(output_path, events)
+        
+        # Verify file exists and is gzip-compressed
+        self.assertTrue(os.path.exists(output_path))
+        
+        # Verify it's valid gzip by attempting to decompress
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Verify it's valid JSON
+        parsed = json.loads(content)
+        self.assertEqual(parsed, events)
+
+    def test_write_chrome_trace_gz_readable(self):
+        """Test that output can be read back and matches input."""
+        output_path = os.path.join(self.temp_dir, "test.json.gz")
+        events = {
+            "traceEvents": [
+                {"name": "event1", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": 0, "tid": 0, "cat": "kernel"},
+                {"name": "event2", "ph": "B", "ts": 200.0, "pid": 0, "tid": 0, "cat": "nvtx"},
+            ]
+        }
+        
+        write_chrome_trace_gz(output_path, events)
+        
+        # Read back and verify
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        self.assertEqual(read_back, events)
+        self.assertEqual(len(read_back["traceEvents"]), 2)
+        self.assertEqual(read_back["traceEvents"][0]["name"], "event1")
+        self.assertEqual(read_back["traceEvents"][1]["name"], "event2")
+
+    def test_write_chrome_trace_gz_with_trace_events(self):
+        """Test with realistic traceEvents structure including args and metadata."""
+        output_path = os.path.join(self.temp_dir, "test.json.gz")
+        events = {
+            "traceEvents": [
+                {
+                    "name": "kernel_launch",
+                    "ph": "X",
+                    "ts": 1000.5,
+                    "dur": 250.75,
+                    "pid": "Device 0",
+                    "tid": "Stream 1",
+                    "cat": "cuda",
+                    "args": {
+                        "deviceId": 0,
+                        "streamId": 1,
+                        "gridDim": [256, 1, 1],
+                        "blockDim": [128, 1, 1],
+                    }
+                },
+                {
+                    "name": "process_name",
+                    "ph": "M",
+                    "ts": 0.0,
+                    "pid": "Device 0",
+                    "tid": "",
+                    "cat": "__metadata",
+                    "args": {"name": "Device 0"}
+                },
+                {
+                    "name": "nvtx_range",
+                    "ph": "B",
+                    "ts": 500.0,
+                    "pid": "Device 0",
+                    "tid": "Thread 1",
+                    "cat": "nvtx",
+                    "args": {"color": "#FF0000"}
+                },
+            ]
+        }
+        
+        write_chrome_trace_gz(output_path, events)
+        
+        # Verify file size is smaller than uncompressed would be (basic compression check)
+        file_size = os.path.getsize(output_path)
+        uncompressed_size = len(json.dumps(events).encode('utf-8'))
+        self.assertLess(file_size, uncompressed_size)
+        
+        # Verify content integrity
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        self.assertEqual(len(read_back["traceEvents"]), 3)
+        
+        # Check nested args are preserved
+        kernel_event = read_back["traceEvents"][0]
+        self.assertEqual(kernel_event["args"]["gridDim"], [256, 1, 1])
+        self.assertEqual(kernel_event["args"]["blockDim"], [128, 1, 1])
+
+    def test_write_chrome_trace_gz_empty_trace_events(self):
+        """Test with empty traceEvents list."""
+        output_path = os.path.join(self.temp_dir, "empty.json.gz")
+        events = {"traceEvents": []}
+        
+        write_chrome_trace_gz(output_path, events)
+        
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        self.assertEqual(read_back, {"traceEvents": []})
+
+    def test_write_chrome_trace_gz_unicode_content(self):
+        """Test that unicode content is properly encoded."""
+        output_path = os.path.join(self.temp_dir, "unicode.json.gz")
+        events = {
+            "traceEvents": [
+                {
+                    "name": "test_事件_émoji_🚀",
+                    "ph": "X",
+                    "ts": 100.0,
+                    "dur": 50.0,
+                    "pid": "Device 0",
+                    "tid": "Thread 1",
+                    "cat": "test",
+                    "args": {"description": "テスト説明"}
+                }
+            ]
+        }
+        
+        write_chrome_trace_gz(output_path, events)
+        
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        self.assertEqual(read_back["traceEvents"][0]["name"], "test_事件_émoji_🚀")
+        self.assertEqual(read_back["traceEvents"][0]["args"]["description"], "テスト説明")
 

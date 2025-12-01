@@ -50,6 +50,7 @@ def profile(
     trace_dir: str = ".traces",
     link_annotations: bool = True,
     verbose: bool = False,
+    cache_dir: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -65,13 +66,15 @@ def profile(
         print_rows: Number of rows to print in summary table
         profiling_targets: Custom profiling targets config (uses PROFILING_TARGETS by default)
         trace_dir: Directory to save traces to
+        cache_dir: Directory for nCompass cache (default: .cache in current directory)
         **kwargs: Arguments to pass to train_simple_network (epochs, hidden_size)
     """
     logger.info("Starting profiling session...")
     
     # Initialize nCompass SDK with profiling targets
+    cache_base = cache_dir if cache_dir else f"{os.getcwd()}/.cache"
     rewrite_config = \
-            Path(f"{os.getcwd()}/.cache/ncompass/profiles/.default/.default/current/config.json")
+            Path(f"{cache_base}/ncompass/profiles/.default/Torch/current/config.json")
     if rewrite_config.exists():
         logger.info("Enabling nCompass rewrites...")
         with rewrite_config.open("r") as f:
@@ -173,6 +176,7 @@ def main(
     no_link: bool = False,
     verbose: bool = False,
     link_only: Optional[str] = None,
+    cache_dir: Optional[str] = None,
 ):
     """
     Run profiling from the command line.
@@ -189,6 +193,7 @@ def main(
         hidden_size: Hidden layer size for the neural network
         custom_config_path: Path to custom profiling targets JSON config
         link_only: If provided, only link the specified trace file and exit
+        cache_dir: Directory for nCompass cache (default: .cache in current directory)
     
     Example usage:
         python modal_replica.py
@@ -251,6 +256,7 @@ def main(
         hidden_size=hidden_size,
         link_annotations=not no_link,
         verbose=verbose,
+        cache_dir=cache_dir,
     )
     
     if trace_path:
@@ -283,6 +289,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-link", action="store_true", help="Disable linking user_annotation events to kernels (linking is enabled by default)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed statistics when linking annotations")
     parser.add_argument("--link-only", type=str, default=None, help="Only link the specified trace file (must end with .pt.trace.json) and output to .linked.pt.trace.json")
+    parser.add_argument("--cache-dir", type=str, default=None, help="Directory for nCompass cache (default: .cache in current directory)")
     
     args = parser.parse_args()
     
@@ -300,5 +307,6 @@ if __name__ == "__main__":
         no_link=args.no_link,
         verbose=args.verbose,
         link_only=args.link_only,
+        cache_dir=args.cache_dir,
     )
 

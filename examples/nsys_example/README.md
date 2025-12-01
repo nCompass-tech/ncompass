@@ -1,14 +1,15 @@
-# Nsight Systems Example: Converting nsys Reports to Chrome Traces
+# Nsight Systems Example: Profiling and Converting nsys Reports
 
-This example demonstrates how to convert NVIDIA Nsight Systems (nsys) profiling reports (`.nsys-rep` files) to Chrome trace JSON format using the nCompass SDK. This allows you to visualize GPU profiling data directly in the nCompass VSCode extension or other Chrome trace viewers.
+This example demonstrates how to profile PyTorch neural network training using NVIDIA Nsight Systems (nsys) and convert the profiling reports to Chrome trace JSON format for visualization in the nCompass VSCode extension or other Chrome trace viewers.
 
 ## What This Example Does
 
 This example shows how to:
-- Convert existing nsys reports to SQLite format using the `nsys` CLI tool
-- Use the nCompass SDK to convert SQLite databases to Chrome trace JSON format
-- Visualize GPU profiling data in the nCompass VSCode extension
-- View traces with GPU kernels, NVTX markers, CUDA API calls, and thread scheduling
+- **Profile PyTorch training** using `nsys profile` to generate `.nsys-rep` files
+- **Convert nsys reports** to SQLite format using the `nsys` CLI tool
+- **Use the nCompass SDK** to convert SQLite databases to Chrome trace JSON format
+- **Visualize GPU profiling data** in the nCompass VSCode extension
+- **View traces** with GPU kernels, NVTX markers, CUDA API calls, and thread scheduling
 
 ## Prerequisites
 
@@ -20,6 +21,26 @@ Before you begin, ensure you have:
   - Verify installation: `nsys --version`
 - **VSCode** with the [nCompass extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode) installed (recommended for viewing traces)
 - **CUDA-capable GPU** (for generating nsys reports, not required for conversion)
+
+## Quick Start: Profile and Convert in One Command
+
+The fastest way to get started is using `main.py`, which handles profiling and conversion in a single command:
+
+```bash
+# Profile the SimpleNet model and auto-convert to Chrome trace
+python main.py --convert
+
+# Profile with custom parameters
+python main.py --epochs 20 --hidden-size 1024 --convert
+
+# Just profile (no conversion)
+python main.py --output my_profile
+```
+
+This will:
+1. Run the SimpleNet training under `nsys profile`
+2. Generate a `.nsys-rep` profiling report
+3. Optionally convert to Chrome trace JSON (with `--convert`)
 
 ## Step-by-Step Guide
 
@@ -61,16 +82,45 @@ If `nsys` is not found, you may need to:
   # Or wherever nsys is installed
   ```
 
-### Step 3: Prepare Your nsys Report
+### Step 3: Profile with main.py (Recommended)
 
-You need an `.nsys-rep` file to convert. You can either:
+The easiest way to generate an nsys report is using `main.py`:
+
+```bash
+# Basic profiling with default parameters
+python main.py
+
+# Profile with custom training parameters
+python main.py --epochs 20 --hidden-size 1024
+
+# Profile and auto-convert to Chrome trace JSON
+python main.py --convert
+
+# Specify output name and trace types
+python main.py --output my_profile --trace-types cuda,nvtx,osrt,cudnn
+```
+
+#### main.py CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--epochs` | Number of training epochs | 10 |
+| `--hidden-size` | Hidden layer size for the network | 512 |
+| `--output`, `-o` | Base name for output files | Auto-generated with timestamp |
+| `--trace-types`, `-t` | Trace types: cuda,nvtx,osrt,cudnn,cublas | cuda,nvtx,osrt |
+| `--convert`, `-c` | Auto-convert to Chrome trace JSON | False |
+| `--no-force` | Don't overwrite existing output files | False |
+
+### Step 3b: Alternative - Use Existing nsys Report
+
+If you already have an `.nsys-rep` file, you can skip profiling:
 
 **Option A: Use the example file**
 - The example includes a test file at `test_files/test_trace.nsys-rep`
 - Or use any existing `.nsys-rep` file you have
 
-**Option B: Generate a new nsys report**
-If you want to profile your own application:
+**Option B: Generate manually with nsys**
+If you want to profile your own application directly:
 
 ```bash
 # Profile a Python script
@@ -220,7 +270,19 @@ The final Chrome trace JSON file is compatible with:
 
 ## Use Cases
 
-### Use Case 1: Convert Existing nsys Reports
+### Use Case 1: End-to-End Profiling Workflow
+
+Profile a model and view the trace in one workflow:
+
+```bash
+# Step 1: Profile and convert
+python main.py --epochs 20 --hidden-size 1024 --convert --output my_training
+
+# Step 2: Open my_training.json in VSCode with nCompass extension
+# Right-click → Open With... → GPU Trace Viewer
+```
+
+### Use Case 2: Convert Existing nsys Reports
 
 If you have existing `.nsys-rep` files from previous profiling sessions:
 
@@ -299,7 +361,9 @@ python nc_pkg.py --down
 
 ## File Structure
 
-- `convert_nsys.py`: Main conversion script
+- `main.py`: Nsys profiling script - runs training under `nsys profile` and optionally converts traces
+- `simplenet.py`: Simple neural network model and training function
+- `convert_nsys.py`: Conversion script for existing nsys reports (nsys-rep → SQLite → JSON)
 - `requirements.txt`: Python dependencies (ncompass SDK)
 - `nc_pkg.py`: Docker helper script
 - `test_files/test_trace.nsys-rep`: Example nsys report file
