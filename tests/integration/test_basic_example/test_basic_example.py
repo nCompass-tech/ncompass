@@ -7,10 +7,10 @@ import pytest
 from   pathlib import Path
 from   typing import Generator
 
-from tests.integration.utils import (build_docker_image, 
-                                     run_docker_command,
-                                     create_symlink,
-                                     remove_symlink)
+from tests.integration.utils.docker import (build_docker_image, 
+                                            run_docker_command,
+                                            create_symlink,
+                                            remove_symlink)
 
 @pytest.fixture(scope="function")
 def example_dir(repo_root: Path) -> Path: 

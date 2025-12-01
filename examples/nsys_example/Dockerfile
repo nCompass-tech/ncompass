@@ -60,13 +60,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends curl wget ca-certificates \
     && wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_2/NsightSystems-linux-cli-public-2025.2.1.130-3569061.deb \
-    && dpkg -i NsightSystems-linux-cli-public-2025.2.1.130-3569061.deb \
-    || (echo "Warning: Failed to install nsys from direct download. Trying repository method..." \
-    && apt-get install -y gnupg \
-    && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
-    && echo "deb https://developer.download.nvidia.com/devtools/repos/ubuntu2404/amd64 /" | tee /etc/apt/sources.list.d/nvidia-devtools.list \
-    && apt-get update -y \
-    && apt-get install -y nsight-systems-cli || echo "Note: nsys installation failed. You may need to install manually.")
+    && dpkg -i NsightSystems-linux-cli-public-2025.2.1.130-3569061.deb
+    # || (echo "Warning: Failed to install nsys from direct download. Trying repository method..." \
+    # && apt-get install -y gnupg \
+    # && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+    # && echo "deb https://developer.download.nvidia.com/devtools/repos/ubuntu2404/amd64 /" | tee /etc/apt/sources.list.d/nvidia-devtools.list \
+    # && apt-get update -y \
+    # && apt-get install -y nsight-systems-cli || echo "Note: nsys installation failed. You may need to install manually.")
 
 # Verify nsys installation
 RUN (nsys --version || echo "Warning: nsys not found in PATH. Ensure it's installed correctly.")

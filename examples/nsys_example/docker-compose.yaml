@@ -26,6 +26,9 @@ services:
       - HOST_GID=${GID:-1000}
       - DISPLAY=${DISPLAY:-:0}
       - HOME=${HOME}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_TORCH_PROFILER_DIR=${VLLM_TORCH_PROFILER_DIR:-}
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64
     stdin_open: true
     tty: true
     command: sleep infinity
