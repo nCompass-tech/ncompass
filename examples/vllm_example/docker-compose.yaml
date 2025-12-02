@@ -1,0 +1,35 @@
+services:
+  vllm_dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - HOST_UID=${UID:-1000}
+        - HOST_GID=${GID:-1000}
+    image: nc_vllm_dev:0.0.1
+    container_name: vllm_dev
+    privileged: true
+    network_mode: host
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ${HOME}:${HOME}
+    working_dir: ${CURRENT_DIR}
+    environment:
+      - HOST_UID=${UID:-1000}
+      - HOST_GID=${GID:-1000}
+      - DISPLAY=${DISPLAY:-:0}
+      - HOME=${HOME}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_TORCH_PROFILER_DIR=${VLLM_TORCH_PROFILER_DIR:-}
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+
