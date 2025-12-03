@@ -1,7 +1,7 @@
 """CUPTI event parsers for CUDA kernel and runtime events."""
 
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
@@ -27,9 +27,9 @@ class CUPTIKernelParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -38,17 +38,15 @@ class CUPTIKernelParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse CUDA kernel events."""
-        events = []
-        
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse CUDA kernel events (streaming)."""
         conn.row_factory = sqlite3.Row
         for row in conn.execute(f"SELECT * FROM {self.table_name}"):
             device_id = row["deviceId"]
             stream_id = row["streamId"]
             kernel_name = strings.get(row["shortName"], "Unknown Kernel")
             
-            event = ChromeTraceEvent(
+            yield ChromeTraceEvent(
                 name=kernel_name,
                 ph="X",
                 cat="kernel",
@@ -69,9 +67,6 @@ class CUPTIKernelParser(BaseParser):
                     "end_ns": row["end"],
                 }
             )
-            events.append(event)
-        
-        return events
 
 
 class CUPTIRuntimeParser(BaseParser):
@@ -91,9 +86,9 @@ class CUPTIRuntimeParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -102,10 +97,8 @@ class CUPTIRuntimeParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse CUDA runtime API events."""
-        events = []
-        
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse CUDA runtime API events (streaming)."""
         conn.row_factory = sqlite3.Row
         query = (
             f"SELECT start, end, globalTid, correlationId, nameId "
@@ -122,7 +115,7 @@ class CUPTIRuntimeParser(BaseParser):
             
             api_name = strings.get(row["nameId"], "Unknown API")
             
-            event = ChromeTraceEvent(
+            yield ChromeTraceEvent(
                 name=api_name,
                 ph="X",
                 cat="cuda_api",
@@ -139,7 +132,3 @@ class CUPTIRuntimeParser(BaseParser):
                     "end_ns": row["end"],
                 }
             )
-            events.append(event)
-        
-        return events
-

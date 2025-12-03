@@ -2,7 +2,7 @@
 
 import sqlite3
 import re
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
@@ -28,9 +28,9 @@ class NVTXParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def _build_filter_clause(self, event_prefix: Optional[list[str]]) -> str:
         """Build SQL WHERE clause for event prefix filtering."""
@@ -50,14 +50,12 @@ class NVTXParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        f"""Parse NVTX events.
+    ) -> Iterator[ChromeTraceEvent]:
+        f"""Parse NVTX events (streaming).
         
         Focuses on eventType {self.NVTX_PUSH_POP_EVENT_ID} (NvtxPushPopRange) which corresponds to
         torch.cuda.nvtx.range APIs.
         """
-        events = []
-        
         filter_clause = self._build_filter_clause(options.nvtx_event_prefix)
         
         conn.row_factory = sqlite3.Row
@@ -117,7 +115,4 @@ class NVTXParser(BaseParser):
                         event.cname = color
                         break
             
-            events.append(event)
-
-        return events
-
+            yield event

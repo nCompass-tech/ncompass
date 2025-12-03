@@ -2,7 +2,7 @@
 
 import sqlite3
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..schema import table_exists
@@ -11,7 +11,10 @@ from ncompass.types import Trait
 from ncompass.trace.infra.utils import logger
 
 class BaseParser(Trait):
-    """Abstract base class for nsys event parsers."""
+    """Abstract base class for nsys event parsers.
+    
+    All parsers use generators for memory-efficient streaming.
+    """
     
     def __init__(self, table_name: str):
         """Initialize parser.
@@ -39,8 +42,8 @@ class BaseParser(Trait):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse events from the table.
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse events from the table (streaming).
         
         Args:
             conn: SQLite connection
@@ -49,8 +52,8 @@ class BaseParser(Trait):
             device_map: PID to device ID mapping
             thread_names: TID to thread name mapping
             
-        Returns:
-            List of Chrome Trace events
+        Yields:
+            Chrome Trace events one at a time
         """
         raise NotImplementedError
     
@@ -61,8 +64,8 @@ class BaseParser(Trait):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist.
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist.
         
         Args:
             conn: SQLite connection
@@ -71,8 +74,7 @@ class BaseParser(Trait):
             device_map: PID to device ID mapping
             thread_names: TID to thread name mapping
             
-        Returns:
-            List of Chrome Trace events, or empty list if table doesn't exist
+        Yields:
+            Chrome Trace events one at a time, or nothing if table doesn't exist
         """
         raise NotImplementedError
-

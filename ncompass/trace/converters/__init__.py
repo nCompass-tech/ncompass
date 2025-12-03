@@ -3,6 +3,7 @@
 from .converter import NsysToChromeTraceConverter, convert_file
 from .models import ChromeTraceEvent, ConversionOptions
 from .linker import link_user_annotation_to_kernels
+from .utils import StreamingChromeTraceWriter
 
 __all__ = [
     "NsysToChromeTraceConverter",
@@ -10,6 +11,7 @@ __all__ = [
     "ChromeTraceEvent",
     "ConversionOptions",
     "link_user_annotation_to_kernels",
+    "StreamingChromeTraceWriter",
 ]
 
 __version__ = "0.1.0"

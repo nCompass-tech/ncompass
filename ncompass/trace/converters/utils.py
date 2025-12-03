@@ -1,7 +1,8 @@
 """Utility functions for nsys2chrome conversion."""
 
-from typing import Any
-from .models import VALID_CHROME_TRACE_PHASES
+import json
+from typing import Any, Iterator, Union
+from .models import VALID_CHROME_TRACE_PHASES, ChromeTraceEvent
 
 
 def ns_to_us(timestamp_ns: int) -> float:
@@ -54,10 +55,84 @@ def write_chrome_trace(output_path: str, events: dict) -> None:
     
     Args:
         output_path: Path to output JSON file
-        events: List of Chrome Trace events
+        events: Dict with traceEvents key containing event list
     """
-    import json
-    
     with open(output_path, 'w') as f:
         json.dump(events, f)
+
+
+class StreamingChromeTraceWriter:
+    """Streaming writer for Chrome Trace JSON format.
+    
+    Writes events incrementally to avoid loading all events into memory.
+    The output format is: {"traceEvents": [event1, event2, ...]}
+    
+    Usage:
+        with StreamingChromeTraceWriter("output.json") as writer:
+            for event in event_generator():
+                writer.write_event(event)
+    """
+    
+    def __init__(self, output_path: str):
+        """Initialize the streaming writer.
+        
+        Args:
+            output_path: Path to the output JSON file
+        """
+        self.output_path = output_path
+        self._file = None
+        self._first_event = True
+    
+    def __enter__(self) -> "StreamingChromeTraceWriter":
+        """Open file and write JSON header."""
+        self._file = open(self.output_path, 'w')
+        self._file.write('{"traceEvents":[')
+        self._first_event = True
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Write JSON footer and close file."""
+        if self._file:
+            self._file.write(']}')
+            self._file.close()
+            self._file = None
+    
+    def write_event(self, event: Union[ChromeTraceEvent, dict[str, Any]]) -> None:
+        """Write a single event to the file.
+        
+        Args:
+            event: ChromeTraceEvent or dict to write
+        """
+        if self._file is None:
+            raise RuntimeError("Writer not opened. Use as context manager.")
+        
+        # Convert to dict if needed
+        if isinstance(event, ChromeTraceEvent):
+            event_dict = event.to_dict()
+        else:
+            event_dict = event
+        
+        # Handle comma separator
+        if self._first_event:
+            self._first_event = False
+        else:
+            self._file.write(',')
+        
+        # Write the event JSON (compact format)
+        json.dump(event_dict, self._file, separators=(',', ':'))
+    
+    def write_events(self, events: Iterator[Union[ChromeTraceEvent, dict[str, Any]]]) -> int:
+        """Write multiple events from an iterator.
+        
+        Args:
+            events: Iterator of events to write
+            
+        Returns:
+            Number of events written
+        """
+        count = 0
+        for event in events:
+            self.write_event(event)
+            count += 1
+        return count
 

@@ -1,7 +1,7 @@
 """Composite event parser."""
 
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
@@ -27,9 +27,9 @@ class CompositeParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -38,14 +38,12 @@ class CompositeParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse composite events.
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse composite events (streaming).
         
         COMPOSITE_EVENTS represent aggregated or composite events.
         The exact structure may vary, so we'll handle common fields.
         """
-        events = []
-        
         conn.row_factory = sqlite3.Row
         query = f"SELECT * FROM {self.table_name}"
         
@@ -91,7 +89,4 @@ class CompositeParser(BaseParser):
             if "end" in columns and row.get("end"):
                 event.dur = ns_to_us(row["end"] - row["start"])
             
-            events.append(event)
-        
-        return events
-
+            yield event

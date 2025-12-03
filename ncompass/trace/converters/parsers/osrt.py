@@ -1,7 +1,7 @@
 """OS Runtime API event parser."""
 
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
@@ -27,9 +27,9 @@ class OSRTParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -38,10 +38,8 @@ class OSRTParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse OS runtime API events."""
-        events = []
-        
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse OS runtime API events (streaming)."""
         conn.row_factory = sqlite3.Row
         query = f"SELECT start, end, globalTid, nameId, returnValue, nestingLevel FROM {self.table_name}"
         
@@ -56,7 +54,7 @@ class OSRTParser(BaseParser):
             process_name = f"Process {pid}"
             thread_name = thread_names.get(tid, f"Thread {tid}")
             
-            event = ChromeTraceEvent(
+            yield ChromeTraceEvent(
                 name=api_name,
                 ph="X",
                 cat="osrt",
@@ -69,7 +67,3 @@ class OSRTParser(BaseParser):
                     "nestingLevel": row["nestingLevel"],
                 }
             )
-            events.append(event)
-        
-        return events
-

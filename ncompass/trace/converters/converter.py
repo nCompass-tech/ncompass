@@ -1,7 +1,7 @@
 """Main converter class for nsys SQLite to Chrome Trace conversion."""
 
 import sqlite3
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 from collections import defaultdict
 try:
     from typing import Self
@@ -27,6 +27,14 @@ from .parsers import (
     CompositeParser,
 )
 from .linker import link_nvtx_to_kernels
+from .linker import (
+    can_use_sql_linking,
+    stream_nvtx_kernel_events,
+    stream_flow_events,
+    get_mapped_nvtx_identifiers,
+    stream_unmapped_nvtx_events,
+)
+from .utils import StreamingChromeTraceWriter
 
 class NsysToChromeTraceConverter(Immutable):
     """Main converter class for nsys SQLite to Chrome Trace conversion."""
@@ -139,6 +147,9 @@ class NsysToChromeTraceConverter(Immutable):
     def _parse_all_events(self) -> list[ChromeTraceEvent]:
         """Parse all events based on options and available tables.
         
+        Note: This method materializes all events into memory for Python-based
+        linking. For memory-efficient conversion, use convert_streaming() instead.
+        
         Returns:
             List of Chrome Trace events
         """
@@ -150,40 +161,43 @@ class NsysToChromeTraceConverter(Immutable):
         
         # Filter requested activities by what's actually available
         requested_activities = set(self.options.activity_types)
-        # TODO: Should we leave this as an &?
         activities_to_parse = requested_activities & available_activities
         
         # Track parsed events for nvtx-kernel linking
+        # Note: We materialize to lists here for Python-based linking
         kernel_events = []
         cuda_api_events = []
         nvtx_events = []
         
-        # Parse kernel events
-        if "kernel" in activities_to_parse:
+        # Parse kernel events (materialize for linking)
+        if "kernel" in activities_to_parse or "nvtx-kernel" in activities_to_parse:
             parser = CUPTIKernelParser()
-            kernel_events = parser.safe_parse(
+            kernel_events = list(parser.safe_parse(
                 self.conn, self.strings, self.options,
                 self.device_map, self.thread_names
-            )
-            events.extend(kernel_events)
+            ))
+            if "kernel" in activities_to_parse:
+                events.extend(kernel_events)
         
-        # Parse CUDA API events
-        if "cuda-api" in activities_to_parse:
+        # Parse CUDA API events (materialize for linking)
+        if "cuda-api" in activities_to_parse or "nvtx-kernel" in activities_to_parse:
             parser = CUPTIRuntimeParser()
-            cuda_api_events = parser.safe_parse(
+            cuda_api_events = list(parser.safe_parse(
                 self.conn, self.strings, self.options,
                 self.device_map, self.thread_names
-            )
-            events.extend(cuda_api_events)
+            ))
+            if "cuda-api" in activities_to_parse:
+                events.extend(cuda_api_events)
         
-        # Parse NVTX events
-        if "nvtx" in activities_to_parse:
+        # Parse NVTX events (materialize for linking)
+        if "nvtx" in activities_to_parse or "nvtx-kernel" in activities_to_parse:
             parser = NVTXParser()
-            nvtx_events = parser.safe_parse(
+            nvtx_events = list(parser.safe_parse(
                 self.conn, self.strings, self.options,
                 self.device_map, self.thread_names,
-            )
-            events.extend(nvtx_events)
+            ))
+            if "nvtx" in activities_to_parse:
+                events.extend(nvtx_events)
         
         # Parse nvtx-kernel events (requires linking)
         if "nvtx-kernel" in activities_to_parse:
@@ -302,10 +316,14 @@ class NsysToChromeTraceConverter(Immutable):
     
     @mutate
     def convert(self) -> dict:
-        """Perform the conversion.
+        """Perform the conversion (loads all events into memory).
+        
+        This method loads all events into memory, performs linking, sorts them,
+        and returns the complete trace. For large traces, use convert_streaming()
+        instead to avoid memory issues.
         
         Returns:
-            List of Chrome Trace events
+            Dict with 'traceEvents' key containing list of event dicts
         """
         if not self.conn:
             raise RuntimeError("Database connection not established")
@@ -327,11 +345,137 @@ class NsysToChromeTraceConverter(Immutable):
         events = self._sort_events(events)
         
         return {'traceEvents': [e.to_dict() for e in events]}
+    
+    @mutate
+    def convert_streaming(self, output_path: str) -> None:
+        """Perform streaming conversion directly to file (memory-efficient).
+        
+        This method uses SQL-based linking to avoid loading all events into memory.
+        Events are streamed directly from SQLite to the output JSON file.
+        
+        Memory usage is O(1) for most event types. Only the StringIds table and
+        device mapping are kept in memory (typically < 10MB).
+        
+        Note: Events are not sorted by timestamp in streaming mode. For sorted
+        output, use convert() instead (but requires more memory).
+        
+        Args:
+            output_path: Path to output JSON file
+        """
+        if not self.conn:
+            raise RuntimeError("Database connection not established")
+        
+        # Load required metadata (small, kept in memory)
+        self.strings = self._load_strings()
+        self.device_map = extract_device_mapping(self.conn)
+        self.thread_names = extract_thread_names(self.conn)
+        
+        available_activities = self._detect_event_types()
+        requested_activities = set(self.options.activity_types)
+        activities_to_parse = requested_activities & available_activities
+        
+        # Determine if we need nvtx-kernel linking
+        needs_nvtx_kernel = "nvtx-kernel" in activities_to_parse
+        use_sql_linking = needs_nvtx_kernel and can_use_sql_linking(self.conn)
+        
+        # If using SQL linking, get mapped NVTX identifiers to filter them out
+        mapped_nvtx_identifiers = set()
+        if use_sql_linking and "nvtx" in activities_to_parse:
+            # Only need to track mapped identifiers if we're also outputting nvtx events
+            mapped_nvtx_identifiers = get_mapped_nvtx_identifiers(self.conn, self.strings)
+        
+        # Stream all events to file
+        with StreamingChromeTraceWriter(output_path) as writer:
+            # 1. Write metadata events first (small)
+            if self.options.include_metadata:
+                for event in self._add_metadata_events():
+                    writer.write_event(event)
+            
+            # 2. Stream nvtx-kernel events (SQL-based linking)
+            if use_sql_linking:
+                for event in stream_nvtx_kernel_events(
+                    self.conn, self.strings, self.options, self.device_map
+                ):
+                    writer.write_event(event)
+                
+                # Stream flow events (CUDA API -> Kernel arrows)
+                for event in stream_flow_events(self.conn, self.device_map):
+                    writer.write_event(event)
+            elif needs_nvtx_kernel:
+                logger.warning(
+                    "nvtx-kernel requested but SQL linking not available. "
+                    "Skipping nvtx-kernel events in streaming mode.",
+                )
+            
+            # 3. Stream kernel events
+            if "kernel" in activities_to_parse:
+                parser = CUPTIKernelParser()
+                for event in parser.safe_parse(
+                    self.conn, self.strings, self.options,
+                    self.device_map, self.thread_names
+                ):
+                    writer.write_event(event)
+            
+            # 4. Stream CUDA API events
+            if "cuda-api" in activities_to_parse:
+                parser = CUPTIRuntimeParser()
+                for event in parser.safe_parse(
+                    self.conn, self.strings, self.options,
+                    self.device_map, self.thread_names
+                ):
+                    writer.write_event(event)
+            
+            # 5. Stream NVTX events (filtered if nvtx-kernel linking was done)
+            if "nvtx" in activities_to_parse:
+                if use_sql_linking and mapped_nvtx_identifiers:
+                    # Use SQL-based streaming that filters out mapped events
+                    for event in stream_unmapped_nvtx_events(
+                        self.conn, self.strings, self.options,
+                        self.device_map, mapped_nvtx_identifiers
+                    ):
+                        writer.write_event(event)
+                else:
+                    # Stream all NVTX events
+                    parser = NVTXParser()
+                    for event in parser.safe_parse(
+                        self.conn, self.strings, self.options,
+                        self.device_map, self.thread_names
+                    ):
+                        writer.write_event(event)
+            
+            # 6. Stream OS runtime events
+            if "osrt" in activities_to_parse:
+                parser = OSRTParser()
+                for event in parser.safe_parse(
+                    self.conn, self.strings, self.options,
+                    self.device_map, self.thread_names
+                ):
+                    writer.write_event(event)
+            
+            # 7. Stream scheduling events
+            if "sched" in activities_to_parse:
+                parser = SchedParser()
+                for event in parser.safe_parse(
+                    self.conn, self.strings, self.options,
+                    self.device_map, self.thread_names
+                ):
+                    writer.write_event(event)
+            
+            # 8. Stream composite events
+            if "composite" in activities_to_parse:
+                parser = CompositeParser()
+                for event in parser.safe_parse(
+                    self.conn, self.strings, self.options,
+                    self.device_map, self.thread_names
+                ):
+                    writer.write_event(event)
+
 
 def convert_file(
     sqlite_path: str,
     output_path: str,
-    options: ConversionOptions | None = None
+    options: ConversionOptions | None = None,
+    streaming: bool = True,
 ) -> None:
     """Convert nsys SQLite file to Chrome Trace JSON.
     
@@ -339,6 +483,8 @@ def convert_file(
         sqlite_path: Path to input SQLite file
         output_path: Path to output JSON file
         options: Conversion options
+        streaming: If True (default), use streaming mode for memory efficiency.
+                   If False, load all events into memory (allows sorting).
     """
     from .utils import write_chrome_trace
 
@@ -347,7 +493,9 @@ def convert_file(
                         .set_options(options)
     
     with converter_ctx as converter:
-        chrome_trace = converter.convert()
-        # Convert Pydantic models to dicts
-        write_chrome_trace(output_path, chrome_trace)
+        if streaming:
+            converter.convert_streaming(output_path)
+        else:
+            chrome_trace = converter.convert()
+            write_chrome_trace(output_path, chrome_trace)
 

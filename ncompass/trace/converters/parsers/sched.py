@@ -1,7 +1,7 @@
 """Thread scheduling event parser."""
 
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..utils import ns_to_us
@@ -27,9 +27,9 @@ class SchedParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Safely parse events, returning empty list if table doesn't exist."""
-        return default_safe_parse(self, conn, strings, options, device_map, thread_names)
+    ) -> Iterator[ChromeTraceEvent]:
+        """Safely parse events, yielding nothing if table doesn't exist."""
+        yield from default_safe_parse(self, conn, strings, options, device_map, thread_names)
     
     def parse(
         self,
@@ -38,14 +38,12 @@ class SchedParser(BaseParser):
         options: ConversionOptions,
         device_map: dict[int, int],
         thread_names: dict[int, str],
-    ) -> list[ChromeTraceEvent]:
-        """Parse thread scheduling events.
+    ) -> Iterator[ChromeTraceEvent]:
+        """Parse thread scheduling events (streaming).
         
         SCHED_EVENTS represent thread state changes (scheduled in/out).
         We'll create events showing when threads are scheduled.
         """
-        events = []
-        
         conn.row_factory = sqlite3.Row
         query = f"SELECT start, cpu, isSchedIn, globalTid, threadState, threadBlock FROM {self.table_name}"
         
@@ -57,7 +55,7 @@ class SchedParser(BaseParser):
             process_name = f"Process {pid}"
             thread_name = thread_names.get(tid, f"Thread {tid}")
             
-            event = ChromeTraceEvent(
+            yield ChromeTraceEvent(
                 name=event_name,
                 ph="i",  # Instant event
                 cat="sched",
@@ -70,7 +68,3 @@ class SchedParser(BaseParser):
                     "threadBlock": row["threadBlock"],
                 }
             )
-            events.append(event)
-        
-        return events
-

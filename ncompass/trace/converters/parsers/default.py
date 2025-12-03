@@ -1,6 +1,7 @@
 """Default implementations for BaseParser methods."""
 
 import sqlite3
+from typing import Iterator
 
 from ..models import ChromeTraceEvent, ConversionOptions
 from ..schema import table_exists as schema_table_exists
@@ -37,8 +38,10 @@ def default_safe_parse(
     options: ConversionOptions,
     device_map: dict[int, int],
     thread_names: dict[int, str],
-) -> list[ChromeTraceEvent]:
-    """Safely parse events, returning empty list if table doesn't exist.
+) -> Iterator[ChromeTraceEvent]:
+    """Safely parse events, yielding nothing if table doesn't exist.
+    
+    This is a generator that streams events one at a time for memory efficiency.
     
     Args:
         parser: Parser instance
@@ -48,16 +51,16 @@ def default_safe_parse(
         device_map: PID to device ID mapping
         thread_names: TID to thread name mapping
         
-    Returns:
-        List of Chrome Trace events, or empty list if table doesn't exist
+    Yields:
+        ChromeTraceEvent objects one at a time
     """
     if not parser.table_exists(conn):
-        return []
+        return
     
     try:
-        return parser.parse(conn, strings, options, device_map, thread_names)
+        yield from parser.parse(conn, strings, options, device_map, thread_names)
     except Exception as e:
         logger.warning(
             f"Failed to parse {parser.table_name}: {e}",
         )
-        return []
+        return
