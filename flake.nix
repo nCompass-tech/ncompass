@@ -5,9 +5,8 @@
 
   outputs = { self, nixpkgs } :
     let
-      python_pkgs = pkgs : (with pkgs.python311Packages; [
-            pip
-            pudb
+      python_pkgs = pkgs : (with pkgs.python310Packages; [
+          pip
           ]);
 
       system_pkgs = pkgs : (with pkgs; [

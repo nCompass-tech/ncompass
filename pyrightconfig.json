@@ -35,7 +35,7 @@
   "reportOptionalOperand": "warning",
   "reportUntypedFunctionDecorator": "warning",
   "reportUntypedClassDecorator": "warning",
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.10",
   "pythonPlatform": "Linux"
 }
 
