@@ -52,8 +52,36 @@ _CHROME_TRACE_PHASES_TUPLE = (
 # Runtime set for validation (derived from tuple)
 VALID_CHROME_TRACE_PHASES: set[str] = set(_CHROME_TRACE_PHASES_TUPLE)
 
-# Type annotation for Pydantic (derived from tuple)
-CHROME_TRACE_PHASES = Literal[*_CHROME_TRACE_PHASES_TUPLE]
+# Type annotation for Pydantic - explicit Literal for Python 3.10 compatibility
+# (Literal[*tuple] unpacking syntax requires Python 3.11+)
+CHROME_TRACE_PHASES = Literal[
+    # Duration Events
+    "B", "E",
+    # Complete Events
+    "X",
+    # Instant Events
+    "i",
+    # Counter Events
+    "C",
+    # Async Events
+    "b", "n", "e",
+    # Flow Events
+    "s", "t", "f",
+    # Sample Events
+    "P",
+    # Object Events
+    "N", "O", "D",
+    # Metadata Events
+    "M",
+    # Memory Dump Events
+    "V", "v",
+    # Mark Events
+    "R",
+    # Clock Sync Events
+    "c",
+    # Context Events
+    "(", ")",
+]
 
 
 class ChromeTraceEvent(BaseModel):
