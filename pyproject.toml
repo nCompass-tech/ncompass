@@ -65,6 +65,9 @@ docs = [
     "myst-parser>=1.0.0",
 ]
 
+[project.scripts]
+ncompass = "ncompass.cli.main:main"
+
 [project.urls]
 Homepage = "https://ncompass.tech"
 Documentation = "https://docs.ncompass.tech"
