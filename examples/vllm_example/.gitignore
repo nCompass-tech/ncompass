@@ -1,1 +1,7 @@
 .*traces
+
+# Environment config with secrets
+env_config.yaml
+*.json
+*.json.gz
+*.txt

@@ -26,8 +26,6 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from ncompass.trace.core.rewrite import enable_rewrites
-from ncompass.trace.core.pydantic import RewriteConfig
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.converters import link_user_annotation_to_kernels
 from simplenet import SimpleNet, train_simple_network
@@ -70,16 +68,6 @@ def profile(
         **kwargs: Arguments to pass to train_simple_network (epochs, hidden_size)
     """
     logger.info("Starting profiling session...")
-    
-    # Initialize nCompass SDK with profiling targets
-    cache_base = cache_dir if cache_dir else f"{os.getcwd()}/.cache"
-    rewrite_config = \
-            Path(f"{cache_base}/ncompass/profiles/.default/Torch/current/config.json")
-    if rewrite_config.exists():
-        logger.info("Enabling nCompass rewrites...")
-        with rewrite_config.open("r") as f:
-            cfg = json.load(f)
-            enable_rewrites(config=RewriteConfig.from_dict(cfg))
     
     # Create output directory for this profiling run
     function_name = "train_simple_network"

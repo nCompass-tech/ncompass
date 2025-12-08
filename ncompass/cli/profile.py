@@ -110,12 +110,12 @@ Note: All ncompass options must appear BEFORE the -- separator.
         help="Comma-separated trace types (default: cuda,nvtx,osrt,cudnn,cublas,opengl,cudla)",
     )
     trace_group.add_argument(
-        "--with-range",
+        "--no-nc-range",
         action="store_true",
-        help="Enable NVTX range capture mode (--capture-range=nvtx)",
+        help="Disable profiling only within nc_start_capture NVTX range",
     )
     trace_group.add_argument(
-        "--no-python-tracing",
+        "--python-tracing",
         action="store_true",
         help="Disable Python/PyTorch tracing (enabled by default)",
     )
@@ -163,7 +163,7 @@ Note: All ncompass options must appear BEFORE the -- separator.
         help="Directory for nCompass cache (default: .cache in current directory)",
     )
     advanced_group.add_argument(
-        "--sudo",
+        "--no-sudo",
         action="store_true",
         help="Run nsys with sudo (enables full system profiling features)",
     )
@@ -249,9 +249,9 @@ def run_profile_command(args: argparse.Namespace) -> int:
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
     logger.info(f"  Trace types: {args.trace_types}")
-    logger.info(f"  Python tracing: {not args.no_python_tracing}")
+    logger.info(f"  Python tracing: {args.python_tracing}")
     logger.info(f"  Auto-convert: {args.convert}")
-    logger.info(f"  Using sudo: {args.sudo}")
+    logger.info(f"  Using sudo: {not args.no_sudo}")
     logger.info("=" * 80)
 
     # Run profiling
@@ -267,9 +267,9 @@ def run_profile_command(args: argparse.Namespace) -> int:
         gpuctxsw=not args.no_gpu_ctx_switch,
         cuda_graph_trace=args.cuda_graph_trace,
         cuda_memory_usage=not args.no_cuda_memory_usage,
-        with_range=args.with_range,
-        python_tracing=not args.no_python_tracing,
-        use_sudo=args.sudo,
+        with_range=not args.no_nc_range,
+        python_tracing=args.python_tracing,
+        use_sudo=not args.no_sudo,
         cache_dir=args.cache_dir,
     )
 
