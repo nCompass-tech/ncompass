@@ -215,5 +215,5 @@ nc_reqs.txt
 
 nc_pkg/config.yaml
 
-.traces/
+.*traces*/
 **golden_convert.json.gz

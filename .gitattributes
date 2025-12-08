@@ -4,3 +4,4 @@ tests/integration/test_basic_example/golden_references/gold.pt.trace.json filter
 tests/integration/test_nsys_example/golden_references/gold_nsys_example.json filter=lfs diff=lfs merge=lfs -text
 tests/integration/test_nsys_example/golden_references/golden_trace.json.gz filter=lfs diff=lfs merge=lfs -text
 tests/integration/test_nsys_example/golden_references/golden_convert.json.gz filter=lfs diff=lfs merge=lfs -text
+examples/vllm_example/vllm-0.12.0+cu130-cp38-abi3-manylinux_2_31_x86_64.whl filter=lfs diff=lfs merge=lfs -text

@@ -31,6 +31,54 @@ if TYPE_CHECKING:
     from ncompass.trace.core.finder import RewritingFinder
 
 
+def filepath_to_canonical_module_name(filepath: str) -> Optional[str]:
+    """Convert a file path to its canonical module name using sys.path.
+    
+    This function finds the most specific sys.path entry that contains the file
+    and derives the module name from the relative path. This ensures that modules
+    are identified by their canonical import name rather than a path-derived name.
+    
+    For example:
+        - If sys.path contains '/path/to/vllm_src'
+        - And filepath is '/path/to/vllm_src/vllm/v1/worker/gpu_model_runner.py'
+        - Returns 'vllm.v1.worker.gpu_model_runner'
+    
+    Args:
+        filepath: Absolute or relative path to a Python file
+        
+    Returns:
+        Canonical module name, or None if file is not under any sys.path entry
+    """
+    filepath = os.path.normpath(os.path.abspath(filepath))
+    
+    # Remove .py extension
+    if filepath.endswith('.py'):
+        module_path = filepath[:-3]
+    else:
+        module_path = filepath
+    
+    # Sort sys.path entries by length (longest first) to find most specific match
+    # This ensures /path/to/vllm_src matches before /path/to
+    sorted_paths = sorted(
+        [os.path.normpath(os.path.abspath(p)) for p in sys.path if p],
+        key=len,
+        reverse=True
+    )
+    
+    for path_entry in sorted_paths:
+        if module_path.startswith(path_entry + os.sep):
+            # Found a matching sys.path entry
+            relative = module_path[len(path_entry) + 1:]  # +1 for separator
+            # Convert path separators to dots
+            module_name = relative.replace(os.sep, '.')
+            # Handle __init__.py
+            if module_name.endswith('.__init__'):
+                module_name = module_name[:-9]
+            return module_name
+    
+    return None
+
+
 def extract_source_code(target_module: str) -> Optional[str]:
     """Extract source code from a module."""
     try:
@@ -500,28 +548,48 @@ def _reimport_single_module(
         old_modules: Dictionary of old module objects
         rewriting_finder: Optional RewritingFinder instance
     """
-    try:
-        # First try standard import (which will go through the RewritingFinder)
-        importlib.import_module(module_name)
-        logger.debug(f"Re-imported module with rewrites enabled: {module_name}")
-    except Exception as e:
-        # If standard import fails, try using the file path with the RewritingFinder
-        # This handles cases where the module was imported locally and doesn't
-        # have a proper package structure
-        
-        file_path = _resolve_module_file_path(module_name, module_config, old_modules)
-        
-        if file_path:
-            try:
-                spec = _create_spec(module_name, file_path, rewriting_finder)
-                if spec:
-                    _load_module_from_spec(module_name, spec)
-                else:
-                    logger.warning(f"Failed to create spec for module {module_name} from {file_path}")
-            except Exception as e2:
-                logger.warning(f"Failed to re-import module {module_name} from file path: {e2}")
-        else:
-            logger.warning(f"Failed to re-import module {module_name}: {e}, and no valid file path available")
+    # First, try to determine the canonical module name from the file path
+    file_path = _resolve_module_file_path(module_name, module_config, old_modules)
+    canonical_name = None
+    if file_path:
+        canonical_name = filepath_to_canonical_module_name(file_path)
+        if canonical_name and canonical_name != module_name:
+            logger.debug(f"Canonical module name for {module_name}: {canonical_name}")
+    
+    # Try importing with canonical name first (if different from module_name)
+    import_succeeded = False
+    if canonical_name and canonical_name != module_name:
+        try:
+            importlib.import_module(canonical_name)
+            logger.debug(f"Re-imported module with canonical name: {canonical_name}")
+            import_succeeded = True
+        except Exception as e:
+            logger.debug(f"Failed to import with canonical name {canonical_name}: {e}")
+    
+    # Try the original module name
+    if not import_succeeded:
+        try:
+            importlib.import_module(module_name)
+            logger.debug(f"Re-imported module with rewrites enabled: {module_name}")
+            import_succeeded = True
+        except Exception as e:
+            logger.debug(f"Failed to import module {module_name}: {e}")
+    
+    # If both failed, try using the file path directly
+    if not import_succeeded and file_path:
+        try:
+            # Use the canonical name if available, otherwise use the original name
+            name_to_use = canonical_name if canonical_name else module_name
+            spec = _create_spec(name_to_use, file_path, rewriting_finder)
+            if spec:
+                _load_module_from_spec(name_to_use, spec)
+                logger.debug(f"Re-imported module from file path: {name_to_use}")
+            else:
+                logger.warning(f"Failed to create spec for module {name_to_use} from {file_path}")
+        except Exception as e2:
+            logger.warning(f"Failed to re-import module {module_name} from file path: {e2}")
+    elif not import_succeeded:
+        logger.warning(f"Failed to re-import module {module_name}: no valid file path available")
 
 
 def reimport_modules(targets: Dict[str, ModuleConfig], old_modules: Dict[str, Any]) -> None:

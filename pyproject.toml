@@ -85,6 +85,8 @@ exclude = ["tests*", "docs*", "examples*"]
 
 [tool.setuptools.package-data]
 ncompass = ["py.typed"]
+# Note: ncompass.pth and ncompass_init.py are installed via setup.py data_files
+# to the root of site-packages (required for .pth files to work)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -153,6 +155,7 @@ exclude = [
     "build",
     "dist",
     "__pycache__",
+    "examples/"
 ]
 
 [tool.interrogate]

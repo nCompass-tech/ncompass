@@ -1,0 +1,6 @@
+# Environment configuration for vLLM example
+# Copy this file to env_config.yaml and fill in your values
+
+HF_TOKEN: "your_huggingface_token_here"
+VLLM_TORCH_PROFILER_DIR: "path_to_dir"
+

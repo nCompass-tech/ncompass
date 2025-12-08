@@ -2,6 +2,11 @@
 include README.md
 include LICENSE
 include pyproject.toml
+include setup.py
+
+# Include .pth auto-initialization files
+include ncompass.pth
+include ncompass_init.py
 
 # Include type checking marker file (PEP 561)
 include ncompass/py.typed
@@ -10,7 +15,8 @@ include ncompass/py.typed
 recursive-include docs *.md *.rst
 
 # Include examples
-recursive-include examples *.py *.md
+exclude examples/*
+recursive-exclude examples *
 
 # Exclude unnecessary files
 global-exclude __pycache__

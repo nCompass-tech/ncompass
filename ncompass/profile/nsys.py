@@ -54,7 +54,7 @@ def create_trace_directory(base_dir: Path) -> tuple[Path, str]:
         Tuple of (trace_directory_path, timestamp_string)
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    trace_dir = base_dir / ".traces" / timestamp
+    trace_dir = base_dir / ".nsys_traces" / timestamp
     trace_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created trace directory: {trace_dir}")
     return trace_dir, timestamp
@@ -104,7 +104,7 @@ def run_nsys_profile(
     # Build the nsys profile command
     cmd: list[str] = []
     if use_sudo:
-        cmd.append("sudo")
+        cmd.extend(["sudo", "-E"])
 
     cmd.extend(
         [

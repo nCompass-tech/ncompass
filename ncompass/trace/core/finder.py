@@ -30,7 +30,11 @@ from copy import deepcopy
 from ncompass.trace.replacers.utils import create_replacer_from_config
 from ncompass.trace.core.loader import RewritingLoader
 from ncompass.trace.infra.utils import logger
-from ncompass.trace.core.utils import merge_marker_configs, submit_queue_request
+from ncompass.trace.core.utils import (
+    merge_marker_configs,
+    submit_queue_request,
+    filepath_to_canonical_module_name,
+)
 
 class _RewritingFinderBase(importlib.abc.MetaPathFinder):
     """Base class for AST rewriting finders."""
@@ -76,8 +80,52 @@ class RewritingFinder(_RewritingFinderBase):
         else:
             self.merged_configs = deepcopy(self.manual_configs)
         
+        # Canonicalize module names based on sys.path before building mappings
+        self._canonicalize_module_names()
+        
         # Build a mapping from file paths to fullnames for local import resolution
         self.filepath_to_fullname: Dict[str, str] = self._build_filepath_mapping()
+    
+    def _canonicalize_module_names(self) -> None:
+        """Canonicalize module names in configs based on sys.path.
+        
+        This ensures that modules are identified by their canonical import name
+        (e.g., 'vllm.v1.worker.gpu_model_runner') rather than a path-derived name
+        (e.g., 'examples.vllm_example.vllm_src.vllm.v1.worker.gpu_model_runner').
+        
+        The canonical name is derived from the file path relative to sys.path entries.
+        """
+        # Build a mapping from old names to canonical names
+        name_mapping: Dict[str, str] = {}
+        
+        for fullname, config in list(self.merged_configs.items()):
+            file_path = config.get('filePath')
+            if not file_path:
+                continue
+            
+            # Compute canonical name from file path
+            canonical_name = filepath_to_canonical_module_name(file_path)
+            
+            if canonical_name and canonical_name != fullname:
+                name_mapping[fullname] = canonical_name
+                logger.info(
+                    f"Canonicalizing module name: {fullname} -> {canonical_name}"
+                )
+        
+        # Apply the remapping
+        for old_name, canonical_name in name_mapping.items():
+            # Move the config to the canonical name
+            config = self.merged_configs.pop(old_name)
+            self.merged_configs[canonical_name] = config
+            
+            # Update target_fullnames
+            if old_name in self.target_fullnames:
+                self.target_fullnames.remove(old_name)
+            if canonical_name not in self.target_fullnames:
+                self.target_fullnames.append(canonical_name)
+        
+        if name_mapping:
+            logger.debug(f"Canonicalized {len(name_mapping)} module names")
     
     def _build_filepath_mapping(self) -> Dict[str, str]:
         """Build a mapping from file paths to fullnames for all target modules."""
