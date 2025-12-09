@@ -40,6 +40,7 @@ def build_and_kill_nsys_example_docker_container(example_dir: Path):
         )
 
 
+@pytest.mark.skip("Known issue, git tracking lost the gold reference and test files")
 @pytest.mark.integration
 def test_nsys_convert(
     example_dir: Path,
