@@ -102,14 +102,14 @@ class TestCreateTraceDirectory(unittest.TestCase):
         self.assertIsInstance(result[1], str)
 
     def test_create_trace_directory_nested(self):
-        """Test that .traces subdirectory is created."""
+        """Test that .nsys_traces subdirectory is created."""
         base_dir = Path(self.temp_dir)
         
         trace_dir, _ = create_trace_directory(base_dir)
         
-        # Should be base_dir/.traces/<timestamp>
+        # Should be base_dir/.nsys_traces/<timestamp>
         self.assertEqual(trace_dir.parent.parent, base_dir)
-        self.assertEqual(trace_dir.parent.name, ".traces")
+        self.assertEqual(trace_dir.parent.name, ".nsys_traces")
 
     def test_create_trace_directory_timestamp_format(self):
         """Test timestamp follows expected format YYYYMMDD_HHMMSS."""
@@ -228,7 +228,7 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_run_nsys_profile_with_sudo(self, mock_run):
-        """Test sudo is prepended when use_sudo=True."""
+        """Test sudo -E is prepended when use_sudo=True."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -254,7 +254,8 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
         
         cmd = mock_run.call_args[0][0]
         self.assertEqual(cmd[0], "sudo")
-        self.assertEqual(cmd[1], "nsys")
+        self.assertEqual(cmd[1], "-E")
+        self.assertEqual(cmd[2], "nsys")
 
     @patch("subprocess.run")
     def test_run_nsys_profile_with_range(self, mock_run):

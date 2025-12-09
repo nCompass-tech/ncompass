@@ -69,8 +69,8 @@ class TestAddProfileParser(unittest.TestCase):
         self.assertIsNone(args.output_dir)
         self.assertFalse(args.convert)
         self.assertEqual(args.trace_types, "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla")
-        self.assertFalse(args.with_range)
-        self.assertFalse(args.no_python_tracing)
+        self.assertFalse(args.no_nc_range)
+        self.assertFalse(args.python_tracing)
         self.assertEqual(args.cuda_graph_trace, "node")
         self.assertEqual(args.sample, "process-tree")
         self.assertEqual(args.session_name, "nc0")
@@ -78,7 +78,7 @@ class TestAddProfileParser(unittest.TestCase):
         self.assertFalse(args.no_gpu_ctx_switch)
         self.assertFalse(args.no_cuda_memory_usage)
         self.assertIsNone(args.cache_dir)
-        self.assertFalse(args.sudo)
+        self.assertFalse(args.no_sudo)
         self.assertFalse(args.verbose)
         self.assertFalse(args.quiet)
 
@@ -172,8 +172,8 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
             "output_dir": None,
             "convert": False,
             "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "with_range": False,
-            "no_python_tracing": False,
+            "no_nc_range": False,
+            "python_tracing": False,
             "cuda_graph_trace": "node",
             "sample": "process-tree",
             "session_name": "nc0",
@@ -181,7 +181,7 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
             "no_gpu_ctx_switch": False,
             "no_cuda_memory_usage": False,
             "cache_dir": None,
-            "sudo": False,
+            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
@@ -295,14 +295,15 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_with_range(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --with-range flag is passed correctly."""
+        """Test range capture is enabled when --no-nc-range is not passed."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(with_range=True)
+        # no_nc_range=False (default) means with_range=True
+        args = self._create_args(no_nc_range=False)
         
         run_profile_command(args)
         
@@ -315,14 +316,15 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_no_python_tracing(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --no-python-tracing flag disables Python tracing."""
+        """Test --python-tracing flag controls Python tracing."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(no_python_tracing=True)
+        # python_tracing=False means Python tracing is disabled
+        args = self._create_args(python_tracing=False)
         
         run_profile_command(args)
         
@@ -355,14 +357,15 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_sudo(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --sudo flag is passed correctly."""
+        """Test --no-sudo flag controls sudo usage."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(sudo=True)
+        # no_sudo=False means use_sudo=True
+        args = self._create_args(no_sudo=False)
         
         run_profile_command(args)
         
@@ -410,8 +413,8 @@ class TestRunProfileCommandNegative(unittest.TestCase):
             "output_dir": None,
             "convert": False,
             "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "with_range": False,
-            "no_python_tracing": False,
+            "no_nc_range": False,
+            "python_tracing": False,
             "cuda_graph_trace": "node",
             "sample": "process-tree",
             "session_name": "nc0",
@@ -419,7 +422,7 @@ class TestRunProfileCommandNegative(unittest.TestCase):
             "no_gpu_ctx_switch": False,
             "no_cuda_memory_usage": False,
             "cache_dir": None,
-            "sudo": False,
+            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
@@ -507,8 +510,8 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
             "output_dir": None,
             "convert": False,
             "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "with_range": False,
-            "no_python_tracing": False,
+            "no_nc_range": False,
+            "python_tracing": False,
             "cuda_graph_trace": "node",
             "sample": "process-tree",
             "session_name": "nc0",
@@ -516,7 +519,7 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
             "no_gpu_ctx_switch": False,
             "no_cuda_memory_usage": False,
             "cache_dir": None,
-            "sudo": False,
+            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
