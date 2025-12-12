@@ -53,7 +53,7 @@ class Immutable:
         if name == 'attrWasSet':
             super().__setattr__(name, value)
         elif name in self.attrWasSet:
-            raise RuntimeError('Cannot change state once created')
+            raise RuntimeError(f'Cannot change state of {name} once created')
         else:
             self.attrWasSet.append(name)
             super().__setattr__(name, value)
