@@ -1,6 +1,7 @@
 """Main converter class for nsys SQLite to Chrome Trace conversion."""
 
 import sqlite3
+import sys
 from typing import Any, Optional, Iterator
 from collections import defaultdict
 try:
@@ -365,12 +366,13 @@ def convert_nsys_report(
     nsys_rep_path: str,
     output_path: str,
     options: ConversionOptions | None = None,
-    keep_sqlite: bool = False
+    keep_sqlite: bool = False,
+    use_rust: bool = True,
 ) -> None:
     """Convert nsys report (.nsys-rep) to gzip-compressed Chrome Trace JSON.
     
     This function performs the full conversion pipeline:
-    1. Converts .nsys-rep to SQLite using nsys CLI
+    1. Converts .nsys-rep to SQLite using nsys CLI (if using Python)
     2. Converts SQLite to Chrome Trace format
     3. Writes output as gzip-compressed JSON (.json.gz)
     
@@ -379,6 +381,7 @@ def convert_nsys_report(
         output_path: Path to output gzip-compressed JSON file (.json.gz)
         options: Conversion options (defaults to common activity types)
         keep_sqlite: If True, keep the intermediate SQLite file
+        use_rust: If True, use the Rust implementation (default: True, faster)
         
     Raises:
         FileNotFoundError: If input file doesn't exist or nsys CLI not found
@@ -396,6 +399,58 @@ def convert_nsys_report(
     if not nsys_rep_file.exists():
         raise FileNotFoundError(f"Input file not found: {nsys_rep_path}")
     
+    # Use Rust implementation if available and requested
+    if use_rust:
+        # Find ncompass root directory (where ncompass_rust is located)
+        import ncompass
+        ncompass_root = Path(ncompass.__file__).parent.parent
+        # TODO: Put rust binary location in a config
+        rust_binary = ncompass_root / "ncompass_rust" / "trace_converters" / "target" / "release" / "nsys-chrome"
+        
+        if rust_binary.exists():
+            # Build command line arguments
+            cmd = [str(rust_binary), str(nsys_rep_path), "-o", str(output_path)]
+            
+            # Add activity types if specified
+            if options is not None and options.activity_types:
+                cmd.extend(["-t", ",".join(options.activity_types)])
+            
+            # Add NVTX prefix filter if specified
+            if options is not None and options.nvtx_event_prefix:
+                cmd.extend(["--nvtx-prefix", ",".join(options.nvtx_event_prefix)])
+            
+            # Add metadata flag
+            if options is not None and not options.include_metadata:
+                cmd.append("--metadata=false")
+            
+            # Add keep-sqlite flag
+            if keep_sqlite:
+                cmd.append("--keep-sqlite")
+            
+            try:
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Print stderr to show progress messages
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                return
+            except subprocess.CalledProcessError as e:
+                logger.warning(
+                    f"Rust converter failed: {e.stderr}\nFalling back to Python implementation."
+                )
+                # Fall through to Python implementation
+            except Exception as e:
+                logger.warning(
+                    f"Error running Rust converter: {e}\nFalling back to Python implementation."
+                )
+                # Fall through to Python implementation
+        else:
+            logger.info(
+                f"Rust binary not found at {rust_binary}. "
+                "Using Python implementation. "
+                "Build the Rust version for speedup: cd ncompass_rust/trace_converters && cargo build --release"
+            )
+    
+    # Python implementation (original code)
     # Determine SQLite file path
     if keep_sqlite:
         sqlite_path = nsys_rep_file.with_suffix('.sqlite')
