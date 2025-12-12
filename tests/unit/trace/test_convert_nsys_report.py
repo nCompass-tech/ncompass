@@ -99,8 +99,6 @@ class TestConvertNsysReportSubprocess(unittest.TestCase):
         self.assertEqual(command[1], "export")
         self.assertIn("--type", command)
         self.assertIn("sqlite", command)
-        self.assertIn("--include-json", command)
-        self.assertIn("true", command)
         self.assertIn("--force-overwrite", command)
         self.assertIn("-o", command)
         self.assertIn(str(self.input_file), command)

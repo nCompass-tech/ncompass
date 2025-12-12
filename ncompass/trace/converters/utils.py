@@ -1,7 +1,8 @@
 """Utility functions for nsys2chrome conversion."""
 
-from typing import Any
+from typing import Any, Iterator
 from .models import VALID_CHROME_TRACE_PHASES
+import orjson
 
 
 def ns_to_us(timestamp_ns: int) -> float:
@@ -49,29 +50,53 @@ def validate_chrome_trace(events: list[dict[str, Any]]) -> bool:
     return True
 
 
-def write_chrome_trace(output_path: str, events: dict) -> None:
-    """Write Chrome Trace events to JSON file.
+def write_chrome_trace(output_path: str, events: Iterator[dict]) -> None:
+    """Write Chrome Trace events to JSON file using streaming.
     
     Args:
         output_path: Path to output JSON file
-        events: List of Chrome Trace events
+        events: Iterator of Chrome Trace event dicts
     """
-    import json
-    
-    with open(output_path, 'w') as f:
-        json.dump(events, f)
+    with open(output_path, 'wb') as f:
+        # Write opening
+        f.write(b'{"traceEvents":[')
+        
+        # Stream events with commas between them
+        first = True
+        for event in events:
+            if not first:
+                f.write(b',')
+            else:
+                first = False
+            # orjson.dumps returns bytes
+            f.write(orjson.dumps(event))
+        
+        # Write closing
+        f.write(b']}')
 
 
-def write_chrome_trace_gz(output_path: str, events: dict) -> None:
-    """Write Chrome Trace events to gzip-compressed JSON file.
+def write_chrome_trace_gz(output_path: str, events: Iterator[dict]) -> None:
+    """Write Chrome Trace events to gzip-compressed JSON file using streaming.
     
     Args:
         output_path: Path to output gzip-compressed JSON file (.json.gz)
-        events: Chrome Trace events dictionary
+        events: Iterator of Chrome Trace event dicts
     """
     import gzip
-    import json
     
-    with gzip.open(output_path, 'wt', encoding='utf-8') as f:
-        json.dump(events, f)
-
+    with gzip.open(output_path, 'wb') as f:
+        # Write opening
+        f.write(b'{"traceEvents":[')
+        
+        # Stream events with commas between them
+        first = True
+        for event in events:
+            if not first:
+                f.write(b',')
+            else:
+                first = False
+            # orjson.dumps returns bytes
+            f.write(orjson.dumps(event))
+        
+        # Write closing
+        f.write(b']}')

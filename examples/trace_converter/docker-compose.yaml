@@ -1,0 +1,32 @@
+services:
+  nsys_example:
+    build:
+      context: ../../../
+      dockerfile: ncompass/examples/trace_converter/Dockerfile
+      args:
+        - HOST_UID=${UID:-1000}
+        - HOST_GID=${GID:-1000}
+    image: nc_trace_conversion:latest
+    container_name: trace_conversion
+    privileged: true
+    network_mode: host
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ${HOME}:${HOME}
+    working_dir: ${CURRENT_DIR}
+    environment:
+      - HOST_UID=${UID:-1000}
+      - HOST_GID=${GID:-1000}
+      - DISPLAY=${DISPLAY:-:0}
+      - HOME=${HOME}
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64
+    stdin_open: true
+    tty: true
+    command: sleep infinity

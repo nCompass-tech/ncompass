@@ -13,6 +13,8 @@
           git-lfs
           pyright
           plantuml
+          rustup
+          pkgsCross.musl64.buildPackages.gcc  # Cross-compiler for musl
         ]);
 
       venv_name="venv-lsp";
@@ -82,6 +84,7 @@
                                     ]}:$LD_LIBRARY_PATH
             export PYTHONPATH="$PWD:$PYTHONPATH"
             alias nc_pkg="python -m nc_pkg"
+            export CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc
           '' + venv_pip_pkgs;
         };
       
