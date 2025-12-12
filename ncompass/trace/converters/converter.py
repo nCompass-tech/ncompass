@@ -1,7 +1,7 @@
 """Main converter class for nsys SQLite to Chrome Trace conversion."""
 
 import sqlite3
-from typing import Any, Optional
+from typing import Any, Optional, Iterator
 from collections import defaultdict
 try:
     from typing import Self
@@ -42,10 +42,6 @@ class NsysToChromeTraceConverter(Immutable):
         self.sqlite_path: str = ""
         self.options: ConversionOptions | None = None or ConversionOptions()
         self.conn: sqlite3.Connection | None = None
-        self.strings: dict[int, str] = {}
-        self.device_map: dict[int, int] = {}
-        self.thread_names: dict[int, str] = {}
-        self.available_tables: set[str] = set()
 
     @mutate
     def set_sqlite_path(self, sqlite_path: str) -> Self:
@@ -97,10 +93,10 @@ class NsysToChromeTraceConverter(Immutable):
         if not self.conn:
             raise RuntimeError("Database connection not established")
         
-        self.available_tables = detect_available_tables(self.conn)
+        available_tables = detect_available_tables(self.conn)
         available_activities = set()
         
-        for table_name in self.available_tables:
+        for table_name in available_tables:
             activity_type = TableRegistry.get_activity_type(table_name)
             if activity_type:
                 available_activities.add(activity_type)
@@ -136,9 +132,19 @@ class NsysToChromeTraceConverter(Immutable):
             self.options
         )
     
-    def _parse_all_events(self) -> list[ChromeTraceEvent]:
+    def _parse_all_events(
+        self, 
+        strings: dict[int, str],
+        device_map: dict[int, int],
+        thread_names: dict[int, str]
+    ) -> list[ChromeTraceEvent]:
         """Parse all events based on options and available tables.
         
+        Args:
+            strings: Dictionary mapping string ID to string value
+            device_map: Dictionary mapping device IDs
+            thread_names: Dictionary mapping thread IDs to names
+            
         Returns:
             List of Chrome Trace events
         """
@@ -162,8 +168,8 @@ class NsysToChromeTraceConverter(Immutable):
         if "kernel" in activities_to_parse:
             parser = CUPTIKernelParser()
             kernel_events = parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names
+                self.conn, strings, self.options,
+                device_map, thread_names
             )
             events.extend(kernel_events)
         
@@ -171,8 +177,8 @@ class NsysToChromeTraceConverter(Immutable):
         if "cuda-api" in activities_to_parse:
             parser = CUPTIRuntimeParser()
             cuda_api_events = parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names
+                self.conn, strings, self.options,
+                device_map, thread_names
             )
             events.extend(cuda_api_events)
         
@@ -180,8 +186,8 @@ class NsysToChromeTraceConverter(Immutable):
         if "nvtx" in activities_to_parse:
             parser = NVTXParser()
             nvtx_events = parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names,
+                self.conn, strings, self.options,
+                device_map, thread_names,
             )
             events.extend(nvtx_events)
         
@@ -224,31 +230,34 @@ class NsysToChromeTraceConverter(Immutable):
         if "osrt" in activities_to_parse:
             parser = OSRTParser()
             events.extend(parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names
+                self.conn, strings, self.options,
+                device_map, thread_names
             ))
         
         # Parse scheduling events
         if "sched" in activities_to_parse:
             parser = SchedParser()
             events.extend(parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names
+                self.conn, strings, self.options,
+                device_map, thread_names
             ))
         
         # Parse composite events
         if "composite" in activities_to_parse:
             parser = CompositeParser()
             events.extend(parser.safe_parse(
-                self.conn, self.strings, self.options,
-                self.device_map, self.thread_names
+                self.conn, strings, self.options,
+                device_map, thread_names
             ))
         
         return events
     
-    def _add_metadata_events(self) -> list[ChromeTraceEvent]:
+    def _add_metadata_events(self, thread_names: dict[int, str]) -> list[ChromeTraceEvent]:
         """Add metadata events for process and thread names.
         
+        Args:
+            thread_names: Dictionary mapping thread IDs to names
+            
         Returns:
             List of metadata Chrome Trace events
         """
@@ -272,7 +281,7 @@ class NsysToChromeTraceConverter(Immutable):
             events.append(event)
         
         # Add thread name events (if we have thread names)
-        for tid, name in self.thread_names.items():
+        for tid, name in thread_names.items():
             # We need to determine which process this thread belongs to
             # For now, we'll create events for each device
             for device_id in devices:
@@ -300,33 +309,33 @@ class NsysToChromeTraceConverter(Immutable):
         """
         return sorted(events, key=lambda e: (e.ts, e.pid, e.tid))
     
-    @mutate
-    def convert(self) -> dict:
-        """Perform the conversion.
+    def convert(self) -> Iterator[dict]:
+        """Perform the conversion, yielding events as a stream.
         
-        Returns:
-            List of Chrome Trace events
+        Yields:
+            Chrome Trace event dictionaries
         """
         if not self.conn:
             raise RuntimeError("Database connection not established")
         
         # Load required data
-        self.strings = self._load_strings()
-        self.device_map = extract_device_mapping(self.conn)
-        self.thread_names = extract_thread_names(self.conn)
-        
+        strings = self._load_strings()
+        device_map = extract_device_mapping(self.conn)
+        thread_names = extract_thread_names(self.conn)
         
         # Parse all events
-        events = self._parse_all_events()
+        events = self._parse_all_events(strings, device_map, thread_names)
         
         # Add metadata events
         if self.options.include_metadata:
-            events.extend(self._add_metadata_events())
+            events.extend(self._add_metadata_events(thread_names))
         
         # Sort events
         events = self._sort_events(events)
         
-        return {'traceEvents': [e.to_dict() for e in events]}
+        # Yield events one at a time
+        for event in events:
+            yield event.to_dict()
 
 def convert_file(
     sqlite_path: str,
@@ -347,9 +356,9 @@ def convert_file(
                         .set_options(options)
     
     with converter_ctx as converter:
-        chrome_trace = converter.convert()
-        # Convert Pydantic models to dicts
-        write_chrome_trace(output_path, chrome_trace)
+        event_stream = converter.convert()
+        # Stream events directly to file
+        write_chrome_trace(output_path, event_stream)
 
 
 def convert_nsys_report(
@@ -400,7 +409,6 @@ def convert_nsys_report(
         export_command = [
             "nsys", "export",
             "--type", "sqlite",
-            "--include-json", "true",
             "--force-overwrite", "true",
             "-o", str(sqlite_path),
             str(nsys_rep_file)
@@ -428,11 +436,10 @@ def convert_nsys_report(
                             .set_options(options)
         
         with converter_ctx as converter:
-            chrome_trace = converter.convert()
-            write_chrome_trace_gz(output_path, chrome_trace)
+            event_stream = converter.convert()
+            write_chrome_trace_gz(output_path, event_stream)
     
     finally:
         # Clean up SQLite file if not keeping it
         if not keep_sqlite and sqlite_path.exists():
             sqlite_path.unlink()
-
