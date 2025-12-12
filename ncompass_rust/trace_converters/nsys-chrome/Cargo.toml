@@ -1,0 +1,33 @@
+[package]
+name = "nsys-chrome"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-performance converter from nsys SQLite to Chrome Trace format"
+
+[[bin]]
+name = "nsys-chrome"
+path = "src/main.rs"
+
+[lib]
+name = "nsys_chrome"
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+flate2.workspace = true
+gzp.workspace = true
+clap.workspace = true
+regex.workspace = true
+anyhow.workspace = true
+rayon.workspace = true
+ahash.workspace = true
+tempfile = "3.10"
+
+[dev-dependencies]
+tempfile = "3.10"
+rusqlite.workspace = true
+
