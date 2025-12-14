@@ -20,7 +20,7 @@ import sys
 from typing import Optional
 
 from ncompass.trace.core.finder import RewritingFinder
-from ncompass.trace.core.pydantic import RewriteConfig
+from ncompass.trace.core.pydantic import RewriteConfig, ModuleConfig
 from ncompass.trace.infra.utils import logger
 from ncompass.trace.core.utils import clear_cached_modules, reimport_modules
 
@@ -31,29 +31,39 @@ def enable_rewrites(config: Optional[RewriteConfig] = None) -> None:
     """
     # Convert RewriteConfig to dict if needed
     config_dict = None
-    old_modules = {}
     if config is not None:
         if isinstance(config, RewriteConfig):
             config_dict = config.to_dict()
-            # Clear modules and get old references
-            old_modules = clear_cached_modules(config.targets)
         else:
             raise TypeError(f"config must be a RewriteConfig instance, got {type(config)}")
     
-    # Check if finder already exists
-    existing_finder = None
-    for f in sys.meta_path:
+    # Create finder first - canonicalization happens in __init__
+    new_finder = RewritingFinder(config=config_dict)
+    
+    # Use the finder's canonicalized merged_configs for clear/reimport
+    old_modules = {}
+    canonicalized_targets = {}
+    if config is not None:
+        # Convert finder's merged_configs (dict) back to Dict[str, ModuleConfig]
+        canonicalized_targets = {
+            name: ModuleConfig(**cfg)
+            for name, cfg in new_finder.merged_configs.items()
+        }
+        # Clear modules and get old references using canonicalized names
+        old_modules = clear_cached_modules(canonicalized_targets)
+    
+    # Remove existing finder if present
+    for f in sys.meta_path[:]:
         if isinstance(f, RewritingFinder):
-            existing_finder = f
+            sys.meta_path.remove(f)
             break
 
-    # Remove existing finder if present
-    if existing_finder:
-        sys.meta_path.remove(existing_finder)
-    # Add new finder
-    sys.meta_path.insert(0, RewritingFinder(config=config_dict))
-    if config is not None and isinstance(config, RewriteConfig):
-        reimport_modules(config.targets, old_modules)
+    # Add the new finder to sys.meta_path
+    sys.meta_path.insert(0, new_finder)
+    
+    # Reimport with canonicalized names
+    if config is not None:
+        reimport_modules(canonicalized_targets, old_modules)
     logger.info(f"NC profiling enabled.")
 
 
