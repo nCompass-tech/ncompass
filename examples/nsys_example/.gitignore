@@ -3,3 +3,4 @@
 ncompass
 *.nsys-rep
 !test_files/test_trace.nsys-rep
+test_files/*.json.gz

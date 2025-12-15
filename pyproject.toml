@@ -85,7 +85,7 @@ include = ["ncompass*"]
 exclude = ["tests*", "docs*", "examples*"]
 
 [tool.setuptools.package-data]
-ncompass = ["py.typed"]
+ncompass = ["py.typed", "bin/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

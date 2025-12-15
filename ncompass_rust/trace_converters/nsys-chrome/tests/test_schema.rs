@@ -511,3 +511,4 @@ fn test_detect_event_types_unrecognized_tables_ignored() {
     assert_eq!(result.len(), 1);
     assert!(result.contains("kernel"));
 }
+
