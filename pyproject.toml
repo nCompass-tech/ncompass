@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncompass"
-version = "0.1.10"
+version = "0.1.10-dev.0"
 description = "Profiling and trace analysis SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,7 +42,6 @@ classifiers = [
 dependencies = [
     "requests>=2.28.0",
     "pydantic>2.0.0",
-    "torch>=2.0.0",
     "orjson>=3.9.0",
     "tomli>=2.0.0; python_version < '3.11'",
     "typing_extensions>=4.0.0; python_version < '3.11'",
