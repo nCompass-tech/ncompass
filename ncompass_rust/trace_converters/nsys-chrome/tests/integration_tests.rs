@@ -525,23 +525,24 @@ fn test_nsys_convert_end_to_end() {
     )
     .unwrap();
     
-    // Create NVTX_EVENTS table
+    // Create NVTX_EVENTS table (must match real nsys schema with textId and INTEGER eventType)
     conn.execute(
         "CREATE TABLE NVTX_EVENTS (
             start INTEGER,
             end INTEGER,
             text TEXT,
+            textId INTEGER,
             globalTid INTEGER,
-            eventType TEXT
+            eventType INTEGER
         )",
         [],
     )
     .unwrap();
     
-    // Add an NVTX event
+    // Add an NVTX event (eventType 59 = NVTX_PUSH_POP_EVENT_ID for push/pop ranges)
     conn.execute(
         "INSERT INTO NVTX_EVENTS VALUES (
-            900000000, 1100000000, 'Forward Pass', 12345, 'PushPopRange'
+            900000000, 1100000000, 'Forward Pass', NULL, 12345, 59
         )",
         [],
     )

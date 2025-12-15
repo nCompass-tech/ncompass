@@ -76,6 +76,8 @@ pub fn find_overlapping_intervals<'a>(
     }
 
     // Sort by timestamp, then by event type (start=1 before end=-1), then by origin
+    // For origin: Source should come before Target at same timestamp so that
+    // source becomes active before target start is processed (matching Python behavior)
     mixed_events.sort_by(|a, b| {
         a.timestamp
             .cmp(&b.timestamp)
@@ -83,7 +85,7 @@ pub fn find_overlapping_intervals<'a>(
             .then_with(|| {
                 let a_origin = matches!(a.origin, EventOrigin::Source) as u8;
                 let b_origin = matches!(b.origin, EventOrigin::Source) as u8;
-                a_origin.cmp(&b_origin)
+                b_origin.cmp(&a_origin) // Reverse: Source (1) comes before Target (0)
             })
     });
 

@@ -24,7 +24,8 @@ if str(REPO_ROOT) not in sys.path:
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
 
 # _FILE_NAME = ".traces/python_profile_20251210_081737"
-_FILE_NAME = ".traces/nsys_h200_vllm_qwen30ba3b_TP1_quant"
+# _FILE_NAME = ".traces/nsys_h200_vllm_qwen30ba3b_TP1_quant"
+_FILE_NAME = ".traces/nsys_h200_vllm_qwen30ba3b_TP4_quant"
 
 INPUT_REP = THIS_DIR / f"{_FILE_NAME}.nsys-rep"
 OUTPUT_TRACE = THIS_DIR / f"{_FILE_NAME}.json.gz"
