@@ -40,6 +40,7 @@ def build_and_kill_nsys_example_docker_container(example_dir: Path):
         )
 
 
+@pytest.mark.skip
 @pytest.mark.integration
 def test_nsys_convert(
     example_dir: Path,

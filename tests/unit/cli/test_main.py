@@ -24,7 +24,12 @@ import unittest
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
+# Import the module first to ensure it's in sys.modules
+import ncompass.cli.main
 from ncompass.cli.main import create_parser, main
+
+# Get the actual module from sys.modules (not the function that shadows it in ncompass.cli)
+_main_module = sys.modules["ncompass.cli.main"]
 
 
 class TestCreateParser(unittest.TestCase):
@@ -79,7 +84,7 @@ class TestMainNoArgs(unittest.TestCase):
     def test_main_no_args_prints_help(self, mock_stdout):
         """Test that main with no args prints help message."""
         # Use a fresh parser to capture help output
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = argparse.Namespace(command=None)
             mock_create_parser.return_value = mock_parser
@@ -114,7 +119,7 @@ class TestMainCommandDispatch(unittest.TestCase):
         mock_run_profile.return_value = 0
         
         # Need to patch to avoid actual file check
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = mock_args
@@ -132,7 +137,7 @@ class TestMainCommandDispatch(unittest.TestCase):
         """Test that convert command dispatches to run_convert_command."""
         mock_run_convert.return_value = 0
         
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="convert", func=mock_run_convert)
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = mock_args
@@ -152,7 +157,7 @@ class TestMainSeparatorHandling(unittest.TestCase):
         """Test that -- separator correctly splits ncompass args from user command."""
         mock_run_profile.return_value = 0
         
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = mock_args
@@ -170,7 +175,7 @@ class TestMainSeparatorHandling(unittest.TestCase):
         """Test that without --, user_command is empty list."""
         mock_run_profile.return_value = 0
         
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = mock_args
@@ -185,7 +190,7 @@ class TestMainSeparatorHandling(unittest.TestCase):
         """Test that flags after -- are passed to user command, not parsed."""
         mock_run_profile.return_value = 0
         
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
             mock_parser.parse_args.return_value = mock_args
@@ -209,7 +214,7 @@ class TestMainNegativeCases(unittest.TestCase):
 
     def test_main_missing_func_attribute(self):
         """Test that missing func attribute returns 1."""
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             # Args with command but no func attribute
             mock_args = argparse.Namespace(command="profile")
             # Explicitly remove func if it exists
@@ -259,7 +264,7 @@ class TestMainCommandHandlerReturn(unittest.TestCase):
 
     def test_main_propagates_handler_return_value(self):
         """Test that main returns the value from the command handler."""
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_handler = MagicMock(return_value=42)
             mock_args = argparse.Namespace(command="test", func=mock_handler)
             mock_parser = MagicMock()
@@ -272,7 +277,7 @@ class TestMainCommandHandlerReturn(unittest.TestCase):
 
     def test_main_propagates_nonzero_exit_code(self):
         """Test that main returns non-zero exit codes from handlers."""
-        with patch("ncompass.cli.main.create_parser") as mock_create_parser:
+        with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_handler = MagicMock(return_value=1)
             mock_args = argparse.Namespace(command="test", func=mock_handler)
             mock_parser = MagicMock()
