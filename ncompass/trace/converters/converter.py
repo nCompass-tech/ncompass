@@ -401,20 +401,33 @@ def convert_nsys_report(
     
     # Use Rust implementation if available and requested
     if use_rust:
-        # Find ncompass root directory (where ncompass_rust is located)
         import ncompass
-        ncompass_root = Path(ncompass.__file__).parent.parent
-        # TODO: Put rust binary location in a config
-        rust_binary = \
-            ncompass_root / \
-            "ncompass_rust" / \
-            "trace_converters" / \
-            "target" / \
-            "x86_64-unknown-linux-musl" / \
-            "release" / \
-            "nsys-chrome"
+        ncompass_pkg_dir = Path(ncompass.__file__).parent
+        
+        # Try packaged binary location first (installed via pip)
+        rust_binary = ncompass_pkg_dir / "bin" / "nsys-chrome"
+        is_dev_binary = False
+        
+        # Fallback to development location (editable install / dev checkout)
+        if not rust_binary.exists():
+            ncompass_root = ncompass_pkg_dir.parent
+            rust_binary = (
+                ncompass_root /
+                "ncompass_rust" /
+                "trace_converters" /
+                "target" /
+                "x86_64-unknown-linux-musl" /
+                "release" /
+                "nsys-chrome"
+            )
+            is_dev_binary = True
 
         if rust_binary.exists():
+            if is_dev_binary:
+                logger.info(
+                    "Using Rust binary from development build. "
+                    "For production, install with: pip install ncompass"
+                )
             # Build command line arguments
             cmd = [str(rust_binary), str(nsys_rep_path), "-o", str(output_path)]
             
@@ -435,7 +448,7 @@ def convert_nsys_report(
                 cmd.append("--keep-sqlite")
             
             try:
-                print(f"Running comand => {cmd.join(' ')}")
+                print(f"Running comand => {cmd}")
                 result = subprocess.run(cmd, check=True, text=True)
                 # Print stderr to show progress messages
                 if result.stderr:
@@ -455,7 +468,8 @@ def convert_nsys_report(
             logger.info(
                 f"Rust binary not found at {rust_binary}. "
                 "Using Python implementation. "
-                "Build the Rust version for speedup: cd ncompass_rust/trace_converters && cargo build --release"
+                "Build the Rust version for speedup: cd ncompass_rust/trace_converters && "
+                "cargo build --release --target=x86_64-unknown-linux-musl"
             )
     
     # Python implementation (original code)

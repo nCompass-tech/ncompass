@@ -62,6 +62,14 @@
           }
           '';
 
+      rust_setup = ''
+        rustup default stable
+        
+        # Use linux-musl for statically linked binary and small binary size
+        rustup target add x86_64-unknown-linux-musl
+        export CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc
+      '';
+
       free_pkgs_linux = import nixpkgs {
         system = "x86_64-linux";
         config.allowUnfree = true;
@@ -84,8 +92,7 @@
                                     ]}:$LD_LIBRARY_PATH
             export PYTHONPATH="$PWD:$PYTHONPATH"
             alias nc_pkg="python -m nc_pkg"
-            export CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc
-          '' + venv_pip_pkgs;
+          '' + venv_pip_pkgs + rust_setup;
         };
       
       osxNixEnvPackages = pkgs : 

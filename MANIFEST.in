@@ -2,6 +2,11 @@
 include README.md
 include LICENSE
 include pyproject.toml
+include setup.py
+
+# Include Rust source for building from source
+recursive-include ncompass_rust *.rs *.toml
+include ncompass_rust/trace_converters/.cargo/config.toml
 
 # Include type checking marker file (PEP 561)
 include ncompass/py.typed
