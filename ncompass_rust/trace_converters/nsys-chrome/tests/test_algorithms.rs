@@ -532,3 +532,4 @@ fn test_find_kernels_for_annotation_empty_api_events() {
 
     assert!(result.is_empty());
 }
+

@@ -408,3 +408,4 @@ fn test_get_all_devices_sorted() {
     // Should be sorted
     assert_eq!(result, vec![1, 2, 3]);
 }
+

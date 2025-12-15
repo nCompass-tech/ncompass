@@ -479,3 +479,4 @@ fn test_link_nvtx_to_kernels_kernel_time_aggregation() {
     assert_eq!(nvtx_kernel_events[0].ts, 140.0);
     assert_eq!(nvtx_kernel_events[0].dur.unwrap(), 110.0); // 250 - 140
 }
+
