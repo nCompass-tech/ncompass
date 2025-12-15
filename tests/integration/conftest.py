@@ -36,15 +36,9 @@ def test_dir(example_dir: Path) -> Path:
     """Get the repository root directory."""
     test_dir = example_dir / ".pytest"
     print(f"\nCreating test dir {test_dir} for test generated files ...")
-    subprocess.run(
-        ["mkdir", f"{test_dir}"],
-        check=True
-    )
+    test_dir.mkdir(exist_ok=True)
     try:
         yield test_dir
     finally: 
         print("\nRemoving Test generated files ...")
-        subprocess.run(
-            [f"rm", "-rf", f"{test_dir}"],
-            check=True
-        )
+        shutil.rmtree(test_dir, ignore_errors=True)
