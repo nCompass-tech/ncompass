@@ -25,7 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
 
 
-def run_conversion(input_rep: Path, output_trace: Path) -> None:
+def run_conversion(input_rep: Path, output_trace: Path, use_rust: bool) -> None:
     options = ConversionOptions(
         activity_types=["kernel", "nvtx", "nvtx-kernel", "cuda-api", "osrt", "sched"],
         include_metadata=True,
@@ -35,7 +35,7 @@ def run_conversion(input_rep: Path, output_trace: Path) -> None:
         output_path=str(output_trace),
         options=options,
         keep_sqlite=False,
-        use_rust=True
+        use_rust=use_rust
     )
 
 
@@ -44,6 +44,7 @@ def profile_and_dump(
     output_trace: Path,
     profiler_type: str,
     n_stats_lines: int,
+    use_rust: bool,
 ) -> None:
     if not input_rep.exists():
         raise FileNotFoundError(f"Input file not found: {input_rep}")
@@ -55,7 +56,7 @@ def profile_and_dump(
     elif profiler_type == "time":
         t1 = time.time()
     try:
-        run_conversion(input_rep, output_trace)
+        run_conversion(input_rep, output_trace, use_rust)
     except Exception as e:
         exc = e
     finally:
@@ -85,12 +86,13 @@ def main(
     file_name:     str,
     profiler_type: str,
     n_stats_lines: int,
+    use_rust:      bool = True,
 ) -> int:
     input_rep = THIS_DIR / f"{file_name}.nsys-rep"
     output_trace = THIS_DIR / f"{file_name}.json.gz"
 
     try:
-        profile_and_dump(input_rep, output_trace, profiler_type, n_stats_lines)
+        profile_and_dump(input_rep, output_trace, profiler_type, n_stats_lines, use_rust)
         print(f"Wrote profile stats to {THIS_DIR}")
         return 0
     except Exception as e:
@@ -117,6 +119,12 @@ if __name__ == "__main__":
         default=10,
         help="Number of stats lines to output (for cProfile)",
     )
+    parser.add_argument(
+        "--use-rust",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use Rust backend for conversion (default: True)",
+    )
     args = parser.parse_args()
 
-    raise SystemExit(main(args.file, args.profiler, args.stats_lines))
+    raise SystemExit(main(args.file, args.profiler, args.stats_lines, args.use_rust))
