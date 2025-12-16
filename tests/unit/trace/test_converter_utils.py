@@ -9,6 +9,8 @@ import tempfile
 import unittest
 
 from ncompass.trace.converters.utils import (
+    _process_event_for_overlap,
+    _OVERFLOW_PREFIX,
     ns_to_us,
     validate_chrome_trace,
     write_chrome_trace_gz,
@@ -378,4 +380,237 @@ class TestWriteChromeTraceGz(unittest.TestCase):
         
         self.assertEqual(read_back["traceEvents"][0]["name"], "test_事件_émoji_🚀")
         self.assertEqual(read_back["traceEvents"][0]["args"]["description"], "テスト説明")
+
+
+class TestProcessEventForOverlap(unittest.TestCase):
+    """Test cases for _process_event_for_overlap function (overlap detection)."""
+
+    def test_no_overlap_sequential_events(self):
+        """Test that sequential non-overlapping events keep original tid."""
+        max_end = {}
+        
+        # Event A: ts=100, dur=50, ends at 150
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=160, dur=30, starts after A ends - no overlap
+        event_b = {"name": "B", "ph": "X", "ts": 160.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")
+
+    def test_no_overlap_exactly_adjacent(self):
+        """Test that events exactly adjacent (no gap, no overlap) keep original tid."""
+        max_end = {}
+        
+        # Event A: ts=100, dur=50, ends at 150
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=150, dur=30, starts exactly when A ends - no overlap
+        event_b = {"name": "B", "ph": "X", "ts": 150.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")
+
+    def test_fully_nested_event_keeps_original_tid(self):
+        """Test that fully nested events keep original tid (Perfetto allows this)."""
+        max_end = {}
+        
+        # Event A: ts=100, dur=100, ends at 200 (long event)
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=120, dur=30, ends at 150 - fully nested within A
+        event_b = {"name": "B", "ph": "X", "ts": 120.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")  # Should NOT be moved
+
+    def test_partial_overlap_moves_to_overflow(self):
+        """Test that partial overlap moves event to overflow track."""
+        max_end = {}
+        
+        # Event A: ts=100, dur=50, ends at 150
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=140, dur=30, ends at 170 - starts before A ends, ends after A ends
+        event_b = {"name": "B", "ph": "X", "ts": 140.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], f"{_OVERFLOW_PREFIX}Stream 7")  # Should be moved
+
+    def test_partial_overlap_small_overlap(self):
+        """Test partial overlap with very small overlap (like real GPU traces)."""
+        max_end = {}
+        
+        # Event A: ts=9659065, dur=976, ends at 9660041
+        event_a = {"name": "device_kernel", "ph": "X", "ts": 9659065.0, "dur": 976.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=9660039, dur=33, ends at 9660072 - overlaps by ~2µs
+        event_b = {"name": "device_kernel", "ph": "X", "ts": 9660039.0, "dur": 33.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], f"{_OVERFLOW_PREFIX}Stream 7")
+
+    def test_different_tracks_independent(self):
+        """Test that events on different tracks don't affect each other."""
+        max_end = {}
+        
+        # Event on Stream 7
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event on Stream 8 at overlapping time - should NOT be affected
+        event_b = {"name": "B", "ph": "X", "ts": 120.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 8", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 8")  # Different track, unaffected
+
+    def test_different_pids_independent(self):
+        """Test that events on different pids don't affect each other."""
+        max_end = {}
+        
+        # Event on Device 0
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event on Device 1 at overlapping time - should NOT be affected
+        event_b = {"name": "B", "ph": "X", "ts": 120.0, "dur": 50.0, "pid": "Device 1", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")  # Different pid, unaffected
+
+    def test_non_x_phase_events_unchanged(self):
+        """Test that non-X phase events are not processed."""
+        max_end = {}
+        
+        # Setup: add an event to establish max_end
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        _process_event_for_overlap(event_a, max_end)
+        
+        # B phase event at overlapping time - should NOT be moved
+        event_b = {"name": "B", "ph": "B", "ts": 120.0, "pid": "Device 0", "tid": "Stream 7", "cat": "nvtx"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")  # Not an X event, unchanged
+
+    def test_event_without_dur_unchanged(self):
+        """Test that events without dur field are not processed."""
+        max_end = {}
+        
+        # Setup: add an event to establish max_end
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        _process_event_for_overlap(event_a, max_end)
+        
+        # X event without dur - should NOT be moved (invalid, but shouldn't crash)
+        event_b = {"name": "B", "ph": "X", "ts": 120.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], "Stream 7")
+
+    def test_overflow_track_reused_after_gap(self):
+        """Test that original track is reused after gap (no infinite tracks)."""
+        max_end = {}
+        
+        # Event A: ts=100, dur=50, ends at 150
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_a = _process_event_for_overlap(event_a, max_end)
+        self.assertEqual(result_a["tid"], "Stream 7")
+        
+        # Event B: ts=140, dur=30, ends at 170 - partial overlap, moves to overflow
+        event_b = {"name": "B", "ph": "X", "ts": 140.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        self.assertEqual(result_b["tid"], f"{_OVERFLOW_PREFIX}Stream 7")
+        
+        # Event C: ts=200, dur=20 - starts after both A and B end, should go back to original
+        event_c = {"name": "C", "ph": "X", "ts": 200.0, "dur": 20.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        result_c = _process_event_for_overlap(event_c, max_end)
+        self.assertEqual(result_c["tid"], "Stream 7")  # Back to original track
+
+    def test_does_not_mutate_original_event(self):
+        """Test that original event is not mutated when moved to overflow."""
+        max_end = {}
+        
+        # Event A
+        event_a = {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"}
+        _process_event_for_overlap(event_a, max_end)
+        
+        # Event B that will be moved - keep a reference to original tid
+        original_tid = "Stream 7"
+        event_b = {"name": "B", "ph": "X", "ts": 140.0, "dur": 30.0, "pid": "Device 0", "tid": original_tid, "cat": "kernel"}
+        result_b = _process_event_for_overlap(event_b, max_end)
+        
+        # Result should have new tid
+        self.assertEqual(result_b["tid"], f"{_OVERFLOW_PREFIX}Stream 7")
+        # Original event should be unchanged (it's a copy)
+        self.assertEqual(event_b["tid"], original_tid)
+
+
+class TestWriteChromeTraceGzOverlapHandling(unittest.TestCase):
+    """Test cases for overlap handling in write_chrome_trace_gz."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up temporary files."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_write_handles_partial_overlap(self):
+        """Test that write_chrome_trace_gz moves overlapping events to overflow track."""
+        output_path = os.path.join(self.temp_dir, "overlap.json.gz")
+        
+        events = [
+            {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},
+            {"name": "B", "ph": "X", "ts": 140.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},  # Overlaps
+        ]
+        
+        write_chrome_trace_gz(output_path, iter(events))
+        
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        # First event should be on original track
+        self.assertEqual(read_back["traceEvents"][0]["tid"], "Stream 7")
+        # Second event should be on overflow track
+        self.assertEqual(read_back["traceEvents"][1]["tid"], f"{_OVERFLOW_PREFIX}Stream 7")
+
+    def test_write_preserves_non_overlapping_events(self):
+        """Test that non-overlapping events keep original tid."""
+        output_path = os.path.join(self.temp_dir, "no_overlap.json.gz")
+        
+        events = [
+            {"name": "A", "ph": "X", "ts": 100.0, "dur": 50.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},
+            {"name": "B", "ph": "X", "ts": 200.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},  # No overlap
+        ]
+        
+        write_chrome_trace_gz(output_path, iter(events))
+        
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        # Both events should be on original track
+        self.assertEqual(read_back["traceEvents"][0]["tid"], "Stream 7")
+        self.assertEqual(read_back["traceEvents"][1]["tid"], "Stream 7")
+
+    def test_write_preserves_fully_nested_events(self):
+        """Test that fully nested events keep original tid."""
+        output_path = os.path.join(self.temp_dir, "nested.json.gz")
+        
+        events = [
+            {"name": "A", "ph": "X", "ts": 100.0, "dur": 100.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},
+            {"name": "B", "ph": "X", "ts": 120.0, "dur": 30.0, "pid": "Device 0", "tid": "Stream 7", "cat": "kernel"},  # Nested
+        ]
+        
+        write_chrome_trace_gz(output_path, iter(events))
+        
+        with gzip.open(output_path, 'rt', encoding='utf-8') as f:
+            read_back = json.load(f)
+        
+        # Both events should be on original track (nested is OK)
+        self.assertEqual(read_back["traceEvents"][0]["tid"], "Stream 7")
+        self.assertEqual(read_back["traceEvents"][1]["tid"], "Stream 7")
 

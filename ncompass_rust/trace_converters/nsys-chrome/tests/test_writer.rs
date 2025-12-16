@@ -2,7 +2,7 @@
 
 use flate2::read::GzDecoder;
 use nsys_chrome::models::{ChromeTraceEvent, ChromeTracePhase};
-use nsys_chrome::writer::ChromeTraceWriter;
+use nsys_chrome::writer::{ChromeTraceWriter, OVERFLOW_PREFIX};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -372,6 +372,395 @@ fn test_write_chrome_trace_gz_unicode_content() {
     assert_eq!(
         parsed["traceEvents"][0]["args"]["description"],
         "テスト説明"
+    );
+}
+
+// ==========================
+// Tests for overlap handling
+// ==========================
+
+#[test]
+fn test_overlap_no_overlap_sequential_events() {
+    // Test that sequential non-overlapping events keep original tid
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=100, dur=50, ends at 150
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=160, dur=30, starts after A ends - no overlap
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            160.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 7");
+}
+
+#[test]
+fn test_overlap_exactly_adjacent() {
+    // Test that events exactly adjacent (no gap, no overlap) keep original tid
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=100, dur=50, ends at 150
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=150, dur=30, starts exactly when A ends - no overlap
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            150.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 7");
+}
+
+#[test]
+fn test_overlap_fully_nested_keeps_original_tid() {
+    // Test that fully nested events keep original tid (Perfetto allows this)
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=100, dur=100, ends at 200 (long event)
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            100.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=120, dur=30, ends at 150 - fully nested within A
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            120.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    // Both should be on original track (nested is OK)
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 7");
+}
+
+#[test]
+fn test_overlap_partial_overlap_moves_to_overflow() {
+    // Test that partial overlap moves event to overflow track
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=100, dur=50, ends at 150
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=140, dur=30, ends at 170 - starts before A ends, ends after A ends
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            140.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(
+        parsed["traceEvents"][1]["tid"],
+        format!("{}Stream 7", OVERFLOW_PREFIX)
+    );
+}
+
+#[test]
+fn test_overlap_small_overlap_like_real_gpu_traces() {
+    // Test partial overlap with very small overlap (like real GPU traces)
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=9659065, dur=976, ends at 9660041
+        ChromeTraceEvent::complete(
+            "device_kernel".to_string(),
+            9659065.0,
+            976.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=9660039, dur=33, ends at 9660072 - overlaps by ~2µs
+        ChromeTraceEvent::complete(
+            "device_kernel".to_string(),
+            9660039.0,
+            33.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(
+        parsed["traceEvents"][1]["tid"],
+        format!("{}Stream 7", OVERFLOW_PREFIX)
+    );
+}
+
+#[test]
+fn test_overlap_different_tracks_independent() {
+    // Test that events on different tracks don't affect each other
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event on Stream 7
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            100.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event on Stream 8 at overlapping time - should NOT be affected
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            120.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 8".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 8"); // Different track, unaffected
+}
+
+#[test]
+fn test_overlap_different_pids_independent() {
+    // Test that events on different pids don't affect each other
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event on Device 0
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            100.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event on Device 1 at overlapping time - should NOT be affected
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            120.0,
+            50.0,
+            "Device 1".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 7"); // Different pid, unaffected
+}
+
+#[test]
+fn test_overlap_non_complete_events_unchanged() {
+    // Test that non-Complete phase events are not processed
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Complete event to establish overlap window
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            100.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // DurationBegin event at overlapping time - should NOT be moved
+        ChromeTraceEvent::new(
+            "B".to_string(),
+            ChromeTracePhase::DurationBegin,
+            120.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "nvtx".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(parsed["traceEvents"][1]["tid"], "Stream 7"); // Not a Complete event, unchanged
+}
+
+#[test]
+fn test_overlap_track_reused_after_gap() {
+    // Test that original track is reused after gap (no infinite tracks)
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        // Event A: ts=100, dur=50, ends at 150
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event B: ts=140, dur=30, ends at 170 - partial overlap, moves to overflow
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            140.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        // Event C: ts=200, dur=20 - starts after both A and B end, should go back to original
+        ChromeTraceEvent::complete(
+            "C".to_string(),
+            200.0,
+            20.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write(output_path, events).unwrap();
+
+    let content = std::fs::read_to_string(output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(
+        parsed["traceEvents"][1]["tid"],
+        format!("{}Stream 7", OVERFLOW_PREFIX)
+    );
+    assert_eq!(parsed["traceEvents"][2]["tid"], "Stream 7"); // Back to original track
+}
+
+#[test]
+fn test_overlap_gz_handles_partial_overlap() {
+    // Test that write_gz also handles overlapping events
+    let temp_file = NamedTempFile::new().unwrap();
+    let output_path = temp_file.path().to_str().unwrap();
+
+    let events = vec![
+        ChromeTraceEvent::complete(
+            "A".to_string(),
+            100.0,
+            50.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+        ChromeTraceEvent::complete(
+            "B".to_string(),
+            140.0,
+            30.0,
+            "Device 0".to_string(),
+            "Stream 7".to_string(),
+            "kernel".to_string(),
+        ),
+    ];
+
+    ChromeTraceWriter::write_gz(output_path, events).unwrap();
+
+    let file = File::open(output_path).unwrap();
+    let mut gz = GzDecoder::new(file);
+    let mut content = String::new();
+    gz.read_to_string(&mut content).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
+    assert_eq!(
+        parsed["traceEvents"][1]["tid"],
+        format!("{}Stream 7", OVERFLOW_PREFIX)
     );
 }
 
