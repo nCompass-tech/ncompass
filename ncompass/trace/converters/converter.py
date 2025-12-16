@@ -223,8 +223,7 @@ class NsysToChromeTraceConverter(Immutable):
             else:
                 logger.warning(
                     "nvtx-kernel requested but requires kernel, cuda-api, and nvtx events. "
-                    "Skipping nvtx-kernel events.",
-                    UserWarning
+                    "Skipping nvtx-kernel events."
                 )
         
         # Parse OS runtime events
