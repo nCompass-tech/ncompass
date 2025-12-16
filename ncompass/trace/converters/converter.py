@@ -465,7 +465,7 @@ def convert_nsys_report(
                 )
                 # Fall through to Python implementation
         else:
-            logger.info(
+            logger.warning(
                 f"Rust binary not found at {rust_binary}. "
                 "Using Python implementation. "
                 "Build the Rust version for speedup: cd ncompass_rust/trace_converters && "

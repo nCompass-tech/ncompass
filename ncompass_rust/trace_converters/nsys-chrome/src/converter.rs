@@ -14,6 +14,62 @@ use crate::parsers::{
 };
 use crate::schema::detect_event_types;
 
+/// Filter out NVTX events that have been mapped to kernels, keeping only unmapped ones.
+/// Consumes the input nvtx_events vector and returns only the unmapped events.
+fn filter_unmapped_nvtx_events(
+    nvtx_events: Vec<ChromeTraceEvent>,
+    mapped_nvtx_identifiers: &HashSet<(i32, i32, i64, String)>,
+) -> Vec<ChromeTraceEvent> {
+    if mapped_nvtx_identifiers.is_empty() {
+        return nvtx_events;
+    }
+
+    nvtx_events
+        .into_iter()
+        .filter(|event| {
+            let device_id = event.args.get("deviceId").and_then(|v| v.as_i64());
+            let tid = event.args.get("raw_tid").and_then(|v| v.as_i64());
+            let start_ns = event.args.get("start_ns").and_then(|v| v.as_i64());
+
+            if let (Some(device_id), Some(tid), Some(start_ns)) = (device_id, tid, start_ns) {
+                let event_identifier =
+                    (device_id as i32, tid as i32, start_ns, event.name.clone());
+                !mapped_nvtx_identifiers.contains(&event_identifier)
+            } else {
+                true
+            }
+        })
+        .collect()
+}
+
+/// Process NVTX-kernel linking if all required events are available.
+/// Returns (events_to_add, remaining_nvtx_events).
+fn process_nvtx_kernel_linking(
+    kernel_events: &[ChromeTraceEvent],
+    cuda_api_events: &[ChromeTraceEvent],
+    nvtx_events: Vec<ChromeTraceEvent>,
+    options: &ConversionOptions,
+) -> (Vec<ChromeTraceEvent>, Vec<ChromeTraceEvent>) {
+    if kernel_events.is_empty() || cuda_api_events.is_empty() || nvtx_events.is_empty() {
+        eprintln!(
+            "Warning: nvtx-kernel requested but requires kernel, cuda-api, and nvtx events. Skipping."
+        );
+        return (Vec::new(), nvtx_events);
+    }
+
+    let (nvtx_kernel_events, mapped_nvtx_identifiers, flow_events) =
+        link_nvtx_to_kernels(&nvtx_events, cuda_api_events, kernel_events, options);
+
+    let mut events_to_add = Vec::with_capacity(nvtx_kernel_events.len() + flow_events.len());
+    events_to_add.extend(nvtx_kernel_events);
+    events_to_add.extend(flow_events);
+
+    // Filter out mapped NVTX events, keep unmapped ones
+    let remaining_nvtx = filter_unmapped_nvtx_events(nvtx_events, &mapped_nvtx_identifiers);
+
+    (events_to_add, remaining_nvtx)
+}
+
 /// Main converter class for nsys SQLite to Chrome Trace conversion
 pub struct NsysChromeConverter {
     conn: Connection,
@@ -108,43 +164,14 @@ impl NsysChromeConverter {
 
         // Parse nvtx-kernel events (requires linking) - uses references, no cloning
         if activities_to_parse.contains("nvtx-kernel") {
-            if !kernel_events.is_empty() && !cuda_api_events.is_empty() && !nvtx_events.is_empty()
-            {
-                let (nvtx_kernel_events, mapped_nvtx_identifiers, flow_events) =
-                    link_nvtx_to_kernels(&nvtx_events, &cuda_api_events, &kernel_events, &self.options);
-
-                events.extend(nvtx_kernel_events);
-                events.extend(flow_events);
-
-                // Filter out mapped NVTX events, keep unmapped ones (consume nvtx_events)
-                if !mapped_nvtx_identifiers.is_empty() {
-                    let unmapped_nvtx_events: Vec<ChromeTraceEvent> = nvtx_events
-                        .into_iter()
-                        .filter(|event| {
-                            let device_id = event.args.get("deviceId").and_then(|v| v.as_i64());
-                            let tid = event.args.get("raw_tid").and_then(|v| v.as_i64());
-                            let start_ns = event.args.get("start_ns").and_then(|v| v.as_i64());
-
-                            if let (Some(device_id), Some(tid), Some(start_ns)) = (device_id, tid, start_ns) {
-                                let event_identifier = (device_id as i32, tid as i32, start_ns, event.name.clone());
-                                !mapped_nvtx_identifiers.contains(&event_identifier)
-                            } else {
-                                true
-                            }
-                        })
-                        .collect();
-                    events.extend(unmapped_nvtx_events);
-                } else {
-                    // No mapped events, move all nvtx events
-                    events.extend(nvtx_events);
-                }
-                // nvtx_events is now consumed, set to empty so we don't add it again
-                nvtx_events = Vec::new();
-            } else {
-                eprintln!(
-                    "Warning: nvtx-kernel requested but requires kernel, cuda-api, and nvtx events. Skipping."
-                );
-            }
+            let (nvtx_kernel_events, remaining_nvtx) = process_nvtx_kernel_linking(
+                &kernel_events,
+                &cuda_api_events,
+                nvtx_events,
+                &self.options,
+            );
+            events.extend(nvtx_kernel_events);
+            nvtx_events = remaining_nvtx;
         }
 
         // Add kernel events (move, not clone)

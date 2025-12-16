@@ -1,10 +1,13 @@
 """Core algorithms for linking events via correlation IDs."""
 
+import logging
 from collections import defaultdict
 from typing import Any, Optional, Union
 
 from .adapters import EventAdapter
 from ..models import ChromeTraceEvent
+
+logger = logging.getLogger(__name__)
 
 # Event types supported by the linker algorithms
 # Can be ChromeTraceEvent (from nsys SQLite) or dict[str, Any] (from Chrome trace JSON)
@@ -37,11 +40,14 @@ def find_overlapping_intervals(
     
     # Create mixed list of start/end events
     mixed_events = []
+    source_skipped = 0
+    target_skipped = 0
     
     # Add source events as start/end pairs
     for source_event in source_events:
         time_range = adapter.get_time_range(source_event)
         if time_range is None:
+            source_skipped += 1
             continue
         start, end = time_range
         mixed_events.append((start, 1, source_name, source_event))
@@ -51,10 +57,21 @@ def find_overlapping_intervals(
     for target_event in target_events:
         time_range = adapter.get_time_range(target_event)
         if time_range is None:
+            target_skipped += 1
             continue
         start, end = time_range
         mixed_events.append((start, 1, target_name, target_event))
         mixed_events.append((end, -1, target_name, target_event))
+    
+    # Log summary of events processed vs skipped
+    if source_skipped > 0 or target_skipped > 0:
+        logger.debug(
+            "find_overlapping_intervals: skipped %d %s events and %d %s events without valid time ranges",
+            source_skipped,
+            source_name,
+            target_skipped,
+            target_name
+        )
     
     # Sort by timestamp, then by event type (start=1 before end=-1), then by origin
     mixed_events.sort(key=lambda x: (x[0], x[1], x[2]))
@@ -83,6 +100,13 @@ def find_overlapping_intervals(
         event_id = adapter.get_event_id(source_event)
         result[event_id] = target_list
     
+    logger.debug(
+        "find_overlapping_intervals: found %d %s events with overlapping %s events",
+        len(result),
+        source_name,
+        target_name
+    )
+    
     return result
 
 
@@ -100,11 +124,26 @@ def build_correlation_map(
         Dictionary mapping correlation ID to list of kernel events
     """
     correlation_map = defaultdict(list)
+    skipped_count = 0
     
     for kernel_event in kernel_events:
         corr_id = adapter.get_correlation_id(kernel_event)
         if corr_id is not None:
             correlation_map[corr_id].append(kernel_event)
+        else:
+            skipped_count += 1
+    
+    if skipped_count > 0:
+        logger.debug(
+            "build_correlation_map: skipped %d kernel events without correlationId",
+            skipped_count
+        )
+    
+    logger.debug(
+        "build_correlation_map: built map with %d unique correlation IDs from %d kernels",
+        len(correlation_map),
+        len(kernel_events) - skipped_count
+    )
     
     return correlation_map
 
@@ -165,18 +204,36 @@ def find_kernels_for_annotation(
         List of kernel events associated with the annotation event
     """
     found_kernels = []
+    api_without_corr_id = 0
+    api_without_kernels = 0
     
     for api_event in overlapping_api_events:
         corr_id = adapter.get_correlation_id(api_event)
-        if corr_id is None or corr_id not in correlation_map:
+        if corr_id is None:
+            api_without_corr_id += 1
+            continue
+        if corr_id not in correlation_map:
+            api_without_kernels += 1
             continue
         
         kernels = correlation_map[corr_id]
         if len(kernels) == 0:
             # API call didn't launch a kernel, skip
+            api_without_kernels += 1
             continue
         
         found_kernels.extend(kernels)
+    
+    if api_without_corr_id > 0:
+        logger.debug(
+            "find_kernels_for_annotation: %d API events had no correlationId",
+            api_without_corr_id
+        )
+    if api_without_kernels > 0:
+        logger.debug(
+            "find_kernels_for_annotation: %d API events had no associated kernels",
+            api_without_kernels
+        )
     
     return found_kernels
 

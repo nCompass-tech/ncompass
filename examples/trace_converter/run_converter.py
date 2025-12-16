@@ -9,6 +9,7 @@ This script runs the ncompass conversion pipeline under cProfile and writes:
 
 from __future__ import annotations
 
+import argparse
 import cProfile
 import pstats
 import sys
@@ -23,32 +24,29 @@ if str(REPO_ROOT) not in sys.path:
 
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
 
-# _FILE_NAME = ".traces/python_profile_20251210_081737"
-# _FILE_NAME = ".traces/nsys_h200_vllm_qwen30ba3b_TP1_quant"
-_FILE_NAME = ".traces/nsys_h200_vllm_qwen30ba3b_TP4_quant"
 
-INPUT_REP = THIS_DIR / f"{_FILE_NAME}.nsys-rep"
-OUTPUT_TRACE = THIS_DIR / f"{_FILE_NAME}.json.gz"
-
-N_STATS_LINES = 10
-
-def run_conversion() -> None:
+def run_conversion(input_rep: Path, output_trace: Path) -> None:
     options = ConversionOptions(
         activity_types=["kernel", "nvtx", "nvtx-kernel", "cuda-api", "osrt", "sched"],
         include_metadata=True,
     )
     convert_nsys_report(
-        nsys_rep_path=str(INPUT_REP),
-        output_path=str(OUTPUT_TRACE),
+        nsys_rep_path=str(input_rep),
+        output_path=str(output_trace),
         options=options,
         keep_sqlite=False,
         use_rust=True
     )
 
 
-def profile_and_dump(profiler_type: str) -> None:
-    if not INPUT_REP.exists():
-        raise FileNotFoundError(f"Input file not found: {INPUT_REP}")
+def profile_and_dump(
+    input_rep: Path,
+    output_trace: Path,
+    profiler_type: str,
+    n_stats_lines: int,
+) -> None:
+    if not input_rep.exists():
+        raise FileNotFoundError(f"Input file not found: {input_rep}")
 
     exc: Exception | None = None
     if profiler_type == "cProfile":
@@ -57,7 +55,7 @@ def profile_and_dump(profiler_type: str) -> None:
     elif profiler_type == "time":
         t1 = time.time()
     try:
-        run_conversion()
+        run_conversion(input_rep, output_trace)
     except Exception as e:
         exc = e
     finally:
@@ -68,24 +66,31 @@ def profile_and_dump(profiler_type: str) -> None:
             print(f"Time taken: {(t2 - t1):.2f} seconds")
 
     if profiler_type == "cProfile":
-        cumulative_path = THIS_DIR / f"cumulative_time_top{N_STATS_LINES}.txt"
-        total_path = THIS_DIR / f"total_time_top{N_STATS_LINES}.txt"
+        cumulative_path = THIS_DIR / f"cumulative_time_top{n_stats_lines}.txt"
+        total_path = THIS_DIR / f"total_time_top{n_stats_lines}.txt"
 
         with cumulative_path.open("w", encoding="utf-8") as f:
             stats = pstats.Stats(profiler, stream=f)
-            stats.strip_dirs().sort_stats("cumulative").print_stats(N_STATS_LINES)
+            stats.strip_dirs().sort_stats("cumulative").print_stats(n_stats_lines)
 
         with total_path.open("w", encoding="utf-8") as f:
             stats = pstats.Stats(profiler, stream=f)
-            stats.strip_dirs().sort_stats("tottime").print_stats(N_STATS_LINES)
+            stats.strip_dirs().sort_stats("tottime").print_stats(n_stats_lines)
 
     if exc is not None:
         raise exc
 
 
-def main(profiler_type: str) -> int:
+def main(
+    file_name:     str,
+    profiler_type: str,
+    n_stats_lines: int,
+) -> int:
+    input_rep = THIS_DIR / f"{file_name}.nsys-rep"
+    output_trace = THIS_DIR / f"{file_name}.json.gz"
+
     try:
-        profile_and_dump(profiler_type)
+        profile_and_dump(input_rep, output_trace, profiler_type, n_stats_lines)
         print(f"Wrote profile stats to {THIS_DIR}")
         return 0
     except Exception as e:
@@ -94,5 +99,24 @@ def main(profiler_type: str) -> int:
 
 
 if __name__ == "__main__":
-    profiler_type = "time"
-    raise SystemExit(main(profiler_type))
+    parser = argparse.ArgumentParser(description="Profile nsys to Chrome trace conversion")
+    parser.add_argument(
+        "--file", "-f",
+        default=".traces/nsys_h200_vllm_qwen30ba3b_TP4_quant",
+        help="Trace file name (without extension, relative to script dir)",
+    )
+    parser.add_argument(
+        "--profiler", "-p",
+        choices=["time", "cProfile"],
+        default="time",
+        help="Profiler type to use",
+    )
+    parser.add_argument(
+        "--stats-lines", "-n",
+        type=int,
+        default=10,
+        help="Number of stats lines to output (for cProfile)",
+    )
+    args = parser.parse_args()
+
+    raise SystemExit(main(args.file, args.profiler, args.stats_lines))

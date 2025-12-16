@@ -41,51 +41,6 @@ impl ChromeTraceWriter {
         Ok(())
     }
 
-    /// Write Chrome Trace events to gzip-compressed JSON file (single-threaded)
-    #[allow(dead_code)]
-    pub fn write_gz_single_threaded(output_path: &str, events: Vec<ChromeTraceEvent>) -> Result<()> {
-        let file = File::create(output_path)
-            .with_context(|| format!("Failed to create output file: {}", output_path))?;
-        let buf_writer = BufWriter::with_capacity(256 * 1024, file); // 256KB buffer
-        let mut gz_writer = GzEncoder::new(buf_writer, Compression::default());
-
-        // Batch buffer to reduce the number of write calls to gzip encoder
-        // Each write_all to GzEncoder has overhead (compression state, DEFLATE blocks),
-        // so we batch serialized events and flush periodically
-        let mut batch_buffer = Vec::with_capacity(256 * 1024); // 256KB batch
-
-        // Write opening
-        batch_buffer.extend_from_slice(b"{\"traceEvents\":[");
-
-        // Write events with commas between them, batching to reduce gzip write overhead
-        for (i, event) in events.iter().enumerate() {
-            if i > 0 {
-                batch_buffer.push(b',');
-            }
-            // Writing to Vec is fast (just memory copies), unlike writing to GzEncoder
-            serde_json::to_writer(&mut batch_buffer, &event)
-                .with_context(|| format!("Failed to serialize event: {:?}", event))?;
-
-            // Flush batch to gzip when it gets large enough (128KB threshold)
-            if batch_buffer.len() >= 128 * 1024 {
-                gz_writer.write_all(&batch_buffer)?;
-                batch_buffer.clear();
-            }
-        }
-
-        // Write closing
-        batch_buffer.extend_from_slice(b"]}");
-
-        // Flush remaining buffer
-        if !batch_buffer.is_empty() {
-            gz_writer.write_all(&batch_buffer)?;
-        }
-
-        gz_writer.finish()?;
-
-        Ok(())
-    }
-
     /// Write Chrome Trace events to gzip-compressed JSON file with parallel compression
     ///
     /// Uses pigz-style parallel gzip compression for significantly faster writes
@@ -100,7 +55,8 @@ impl ChromeTraceWriter {
             .from_writer(file);
 
         // Batch buffer to reduce the number of write calls to encoder
-        let mut batch_buffer = Vec::with_capacity(256 * 1024); // 256KB batch
+        let mut batch_buffer = Vec::with_capacity(300 * 1024); // 256KB batch +
+                                                                                 // Overhead
 
         // Write opening
         batch_buffer.extend_from_slice(b"{\"traceEvents\":[");
@@ -114,8 +70,8 @@ impl ChromeTraceWriter {
             serde_json::to_writer(&mut batch_buffer, &event)
                 .with_context(|| format!("Failed to serialize event: {:?}", event))?;
 
-            // Flush batch to encoder when it gets large enough (128KB threshold)
-            if batch_buffer.len() >= 128 * 1024 {
+            // Flush batch to encoder when it gets large enough (256KB threshold)
+            if batch_buffer.len() >= 256 * 1024 {
                 gz_writer.write_all(&batch_buffer)?;
                 batch_buffer.clear();
             }
