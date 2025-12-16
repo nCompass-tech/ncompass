@@ -13,7 +13,7 @@ use std::io::{BufWriter, Write};
 use crate::models::{ChromeTraceEvent, ChromeTracePhase};
 
 /// Unicode arrow prefix for overflow tracks (U+21B3)
-const OVERFLOW_PREFIX: &str = "↳ ";
+pub const OVERFLOW_PREFIX: &str = "↳ ";
 
 /// Streaming JSON writer for Chrome Trace format
 pub struct ChromeTraceWriter;
