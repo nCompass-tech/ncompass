@@ -43,6 +43,10 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Initialize logging from RUST_LOG environment variable
+    // This is inherited from the parent process when called via subprocess
+    env_logger::init();
+
     let args = Args::parse();
 
     // Determine if we need to convert .nsys-rep to SQLite first

@@ -25,6 +25,8 @@ regex.workspace = true
 anyhow.workspace = true
 rayon.workspace = true
 ahash.workspace = true
+log.workspace = true
+env_logger.workspace = true
 tempfile = "3.10"
 
 [dev-dependencies]
