@@ -1,5 +1,6 @@
 //! Link NVTX events to kernel events via CUDA API correlation
 
+use log::debug;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -81,6 +82,8 @@ pub(crate) fn group_events_by_device<'a>(
     let mut per_device_cuda_api: HashMap<i32, Vec<&ChromeTraceEvent>> = HashMap::default();
     let mut per_device_kernels: HashMap<i32, Vec<&ChromeTraceEvent>> = HashMap::default();
 
+    let mut nvtx_no_device = 0;
+    let mut nvtx_no_times = 0;
     for event in nvtx_events {
         if let Some(device_id) = event.args.get("deviceId").and_then(|v| v.as_i64()) {
             let has_times = event.args.get("start_ns").is_some() && event.args.get("end_ns").is_some();
@@ -89,10 +92,16 @@ pub(crate) fn group_events_by_device<'a>(
                     .entry(device_id as i32)
                     .or_insert_with(Vec::new)
                     .push(event);
+            } else {
+                nvtx_no_times += 1;
             }
+        } else {
+            nvtx_no_device += 1;
         }
     }
 
+    let mut cuda_api_no_device = 0;
+    let mut cuda_api_no_corr = 0;
     for event in cuda_api_events {
         if let Some(device_id) = event.args.get("deviceId").and_then(|v| v.as_i64()) {
             if event.args.get("correlationId").is_some() {
@@ -100,10 +109,16 @@ pub(crate) fn group_events_by_device<'a>(
                     .entry(device_id as i32)
                     .or_insert_with(Vec::new)
                     .push(event);
+            } else {
+                cuda_api_no_corr += 1;
             }
+        } else {
+            cuda_api_no_device += 1;
         }
     }
 
+    let mut kernel_no_device = 0;
+    let mut kernel_no_corr = 0;
     for event in kernel_events {
         if let Some(device_id) = event.args.get("deviceId").and_then(|v| v.as_i64()) {
             if event.args.get("correlationId").is_some() {
@@ -111,8 +126,38 @@ pub(crate) fn group_events_by_device<'a>(
                     .entry(device_id as i32)
                     .or_insert_with(Vec::new)
                     .push(event);
+            } else {
+                kernel_no_corr += 1;
             }
+        } else {
+            kernel_no_device += 1;
         }
+    }
+
+    // Log summary of filtered events
+    if nvtx_no_device > 0 || nvtx_no_times > 0 {
+        debug!(
+            "group_events_by_device: filtered {} NVTX events (no deviceId: {}, no times: {})",
+            nvtx_no_device + nvtx_no_times,
+            nvtx_no_device,
+            nvtx_no_times
+        );
+    }
+    if cuda_api_no_device > 0 || cuda_api_no_corr > 0 {
+        debug!(
+            "group_events_by_device: filtered {} CUDA API events (no deviceId: {}, no correlationId: {})",
+            cuda_api_no_device + cuda_api_no_corr,
+            cuda_api_no_device,
+            cuda_api_no_corr
+        );
+    }
+    if kernel_no_device > 0 || kernel_no_corr > 0 {
+        debug!(
+            "group_events_by_device: filtered {} kernel events (no deviceId: {}, no correlationId: {})",
+            kernel_no_device + kernel_no_corr,
+            kernel_no_device,
+            kernel_no_corr
+        );
     }
 
     (per_device_nvtx, per_device_cuda_api, per_device_kernels)
