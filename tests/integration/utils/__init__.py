@@ -15,6 +15,10 @@ from tests.integration.utils.compare import (
     sort_trace_events,
 )
 
+from tests.integration.utils.trace_validation import (
+    count_events_by_category_json,
+)
+
 __all__ = [
     # Docker utilities
     "build_docker_image",
@@ -27,5 +31,6 @@ __all__ = [
     "load_json_file",
     "normalize_json_data",
     "sort_trace_events",
+    # Trace validation utilities
+    "count_events_by_category_json",
 ]
-

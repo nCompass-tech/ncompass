@@ -4,3 +4,9 @@ tests/integration/test_basic_example/golden_references/gold.pt.trace.json filter
 tests/integration/test_nsys_example/golden_references/gold_nsys_example.json filter=lfs diff=lfs merge=lfs -text
 tests/integration/test_nsys_example/golden_references/golden_trace.json.gz filter=lfs diff=lfs merge=lfs -text
 tests/integration/test_nsys_example/golden_references/golden_convert.json.gz filter=lfs diff=lfs merge=lfs -text
+examples/trace_converter/test_files/nsys_vllm_prefill.nsys-rep filter=lfs diff=lfs merge=lfs -text
+examples/trace_converter/test_files/python_profile_20251210_081737.nsys-rep filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_converter/golden_references/nsys_vllm_prefill.rust.json.gz filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_converter/golden_references/nsys_vllm_prefill.python.json.gz filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_converter/golden_references/python_profile_20251210_081737.rust.json.gz filter=lfs diff=lfs merge=lfs -text
+tests/integration/test_converter/golden_references/python_profile_20251210_081737.python.json.gz filter=lfs diff=lfs merge=lfs -text
