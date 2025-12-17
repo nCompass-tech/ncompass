@@ -73,6 +73,7 @@ class TestAddConvertParser(unittest.TestCase):
         self.assertFalse(args.no_metadata)
         self.assertFalse(args.verbose)
         self.assertFalse(args.quiet)
+        self.assertFalse(args.python_fallback)
 
     def test_add_convert_parser_output_short_flag(self):
         """Test -o short flag for output."""
@@ -135,6 +136,7 @@ class TestRunConvertCommandSuccess(unittest.TestCase):
             "no_metadata": False,
             "verbose": False,
             "quiet": False,
+            "python_fallback": False,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
@@ -265,6 +267,7 @@ class TestRunConvertCommandNegative(unittest.TestCase):
             "no_metadata": False,
             "verbose": False,
             "quiet": False,
+            "python_fallback": False,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
@@ -341,6 +344,7 @@ class TestRunConvertCommandEdgeCases(unittest.TestCase):
             "no_metadata": False,
             "verbose": False,
             "quiet": False,
+            "python_fallback": False
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)

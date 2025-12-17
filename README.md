@@ -40,7 +40,7 @@ pip install ncompass
 
 > ⚠️ **Troubleshooting**: If you run into issues with `ncompasslib` or `pydantic`, ensure that:
 > 
-> 1. You are running Python 3.11
+> 1. You are running Python 3.10+
 > 2. You have `Pydantic>=2.0` installed
 
 ## Examples
@@ -50,61 +50,35 @@ Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass
 - **[Basic TorchProfile Example](examples/basic_example/)**
 - **[Nsight Systems Examples](examples/nsys_example/)**
 - **[Running remotely on Modal](examples/modal_example/)**
+- **[Fast conversion of .nsys-rep to .json.gz](examples/trace_converter/)**
 
 ## Online Resources
 
 - 🌐 **Website**: [ncompass.tech](https://ncompass.tech)
-- 📚 **Documentation**: [docs.ncompass.tech](https://docs.ncompass.tech)
+- 📚 **Documentation**: [Documentation](https://round-hardhat-a0a.notion.site/ncprof-Quick-Start-2c4097a5a430805db541c01762ea6922?source=copy_link)
 - 💬 **Community**: [community.ncompass.tech](https://community.ncompass.tech)
 - 🐛 **Issues**: [GitHub Issues](https://github.com/ncompass-tech/ncompass/issues)
+- __ **Discord**: [Join our discord](https://discord.gg/9K48xTxKvN)
 
 ## Requirements
 
-- Python 3.11 or higher
-- PyTorch 2.0+ (optional, for torch profiling features)
-- CUDA-capable GPU (optional, for GPU profiling)
+- Python 3.10 or higher
+- Nsight Systems CLI installed (for .nsys-rep to .json.gz conversion features)
 
-## Development
+## Building without packaging
+Because of Rust dependencies for the fast .nsys-rep to .json.gz converter, `-e` (editable) builds
+aren't setup. To build you have to just `pip install ./` and use the package from your python env.
 
-### Coverage & Quality Tools
-
-All development and coverage tools are in the **`tools/`** directory:
-
+To run tests, run the following:
 ```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Run coverage checks (from tools/ directory)
-cd tools
-make all-checks         # Run all checks
-make coverage           # Unit test coverage
-make docstring-coverage # Docstring coverage
-make type-stats         # Type hint coverage
-make lint               # Run linters
-make format             # Auto-format code
-```
-
-See **[tools/COVERAGE.md](tools/COVERAGE.md)** for comprehensive documentation.
-
-### Project Structure
-
-```
-ncompass/
-├── pyproject.toml      # Project config (only root file)
-├── ncompass/           # Main package
-├── tests/              # Test suite
-├── examples/           # Usage examples
-└── tools/              # All development tools
+nix develop
+pytest tests/ # python tests
+cd ncompass_rust/trace_converters/
+cargo test --target=x86_64-unknown-linux-musl # rust tests
 ```
 
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Documentation**: [docs.ncompass.tech](https://docs.ncompass.tech)
-- **Community Forum**: [community.ncompass.tech](https://community.ncompass.tech)
-- **Email**: aditya.rajagopal@ncompass.tech
 
 Made with ⚡ by [nCompass Technologies](https://ncompass.tech)

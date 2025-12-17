@@ -65,3 +65,4 @@ def count_events_by_category_json(
                 count += 1
     
     return count
+
