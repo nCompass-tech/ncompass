@@ -119,6 +119,13 @@ Examples:
         action="store_true",
         help="Suppress non-error output",
     )
+    
+    parser.add_argument(
+        "--python-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use Python backend for conversion (default: False)",
+    )
 
     parser.set_defaults(func=run_convert_command)
     return parser
@@ -189,6 +196,7 @@ def run_convert_command(args: argparse.Namespace) -> int:
             output_path=str(output_path),
             options=options,
             keep_sqlite=args.keep_sqlite,
+            use_rust=(not args.python_fallback),
         )
 
         logger.info("=" * 80)
