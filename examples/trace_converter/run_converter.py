@@ -17,13 +17,10 @@ from pathlib import Path
 import time
 
 THIS_DIR = Path(__file__).resolve().parent
-# Allow running from a repo checkout without installing the package.
-REPO_ROOT = THIS_DIR.parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
+# Because we need to package a binary and this gets built during pip install, before running this
+# file, you should first run `uv pip install ../../`
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
-
 
 def run_conversion(input_rep: Path, output_trace: Path, use_rust: bool) -> None:
     options = ConversionOptions(

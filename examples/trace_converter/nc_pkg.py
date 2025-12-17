@@ -15,10 +15,6 @@ def get_compose_files() -> list[str]:
     """
     compose_files = ["-f", "docker-compose.yaml"]
     
-    ncompass_dir = Path("./ncompass")
-    if ncompass_dir.exists():
-        compose_files.extend(["-f", "docker-compose.ncompass.yaml"])
-        print("Using docker-compose.ncompass.yaml for ncompass mount")
     
     return compose_files
 
@@ -175,7 +171,7 @@ def install_ncompass(compose_files: list[str], env: dict[str, str], name: str) -
     """
     install_cmd = "uv pip install ../../"
     
-    print("Installing ncompass in editable mode...")
+    print("Installing ncompass ...")
     result = execute_in_container(
         compose_files,
         env,
@@ -240,9 +236,6 @@ def exec_command(tag: str, name: str, command: str):
     compose_files = get_compose_files()
     env = get_compose_env()
     
-    # Ensure container is running
-    force_restart_container(compose_files, env)
-    
     # Execute the command in bash
     print(f"Executing command in container '{name}': {command}")
     result = execute_in_container(
@@ -250,7 +243,7 @@ def exec_command(tag: str, name: str, command: str):
         env,
         name,
         ["/bin/bash", "-c", command],
-        interactive=False
+        interactive=True
     )
     
     # Print output
