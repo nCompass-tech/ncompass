@@ -514,3 +514,4 @@ class TestBackendConsistency:
             f"{trace_stem}: Backend trace diff detected - "
             f"Rust and Python outputs are not equivalent.\n{message}"
         )
+

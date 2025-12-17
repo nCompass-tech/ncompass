@@ -243,12 +243,21 @@ def run_tests(skip_tests: bool, unit_only: bool = False, integration_only: bool 
         text=True
     )
     
-    result = subprocess.run(
+    result_python = subprocess.run(
         [sys.executable, "-m", "pytest", test_path, "--cov=ncompass", "--cov-fail-under=80", "-q"]
     )
     
-    if result.returncode != 0:
-        log_error("Tests failed")
+    if result_python.returncode != 0:
+        log_error("Python tests failed")
+        sys.exit(1)
+    
+    result_rust_trace_converter = subprocess.run(
+        ["cargo", "test", "--target=x86_64-unknown-linux-musl"],
+        cwd=Path(__file__).parent.parent / "ncompass_rust/trace_converters"
+    )
+    
+    if result_rust_trace_converter.returncode != 0:
+        log_error("Trace converter rust tests failed")
         sys.exit(1)
     
     log_success("All tests passed")
