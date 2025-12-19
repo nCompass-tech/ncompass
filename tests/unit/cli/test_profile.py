@@ -72,6 +72,9 @@ class TestAddProfileParser(unittest.TestCase):
         self.assertFalse(args.no_nc_range)
         self.assertFalse(args.python_tracing)
         self.assertEqual(args.cuda_graph_trace, "node")
+        self.assertFalse(args.ncu)
+        self.assertEqual(args.nvtx_include, "")
+        self.assertEqual(args.kernel_name, "")
         self.assertEqual(args.sample, "process-tree")
         self.assertEqual(args.session_name, "nc0")
         self.assertFalse(args.no_force)
@@ -81,6 +84,17 @@ class TestAddProfileParser(unittest.TestCase):
         self.assertFalse(args.no_sudo)
         self.assertFalse(args.verbose)
         self.assertFalse(args.quiet)
+
+    def test_add_profile_parser_ncu_flags(self):
+        """Test NCU-related flags are parsed correctly."""
+        add_profile_parser(self.subparsers)
+        
+        args = self.parser.parse_args([
+            "profile", "--ncu", "--nvtx-include", "ncu_profile/", "--kernel-name", "regex:.*gemm.*"
+        ])
+        self.assertTrue(args.ncu)
+        self.assertEqual(args.nvtx_include, "ncu_profile/")
+        self.assertEqual(args.kernel_name, "regex:.*gemm.*")
 
     def test_add_profile_parser_output_short_flag(self):
         """Test -o short flag for output."""
@@ -175,6 +189,9 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
             "no_nc_range": False,
             "python_tracing": False,
             "cuda_graph_trace": "node",
+            "ncu": False,
+            "nvtx_include": "",
+            "kernel_name": "",
             "sample": "process-tree",
             "session_name": "nc0",
             "no_force": False,
@@ -187,6 +204,29 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
+
+    @patch("ncompass.cli.profile.run_ncu_profile")
+    @patch("ncompass.cli.profile.check_ncu_available")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_ncu_success(
+        self, mock_create_dir, mock_check_ncu, mock_run_ncu
+    ):
+        """Test successful NCU profiling returns 0."""
+        mock_check_ncu.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        output_csv = Path(self.temp_dir) / "output.csv"
+        output_csv.touch()
+        mock_run_ncu.return_value = output_csv
+        
+        args = self._create_args(ncu=True, nvtx_include="range/", kernel_name="gemm")
+        
+        result = run_profile_command(args)
+        
+        self.assertEqual(result, 0)
+        mock_run_ncu.assert_called_once()
+        call_kwargs = mock_run_ncu.call_args[1]
+        self.assertEqual(call_kwargs["nvtx_include"], "range/")
+        self.assertEqual(call_kwargs["kernel_name"], "gemm")
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -416,6 +456,9 @@ class TestRunProfileCommandNegative(unittest.TestCase):
             "no_nc_range": False,
             "python_tracing": False,
             "cuda_graph_trace": "node",
+            "ncu": False,
+            "nvtx_include": "",
+            "kernel_name": "",
             "sample": "process-tree",
             "session_name": "nc0",
             "no_force": False,
@@ -443,6 +486,34 @@ class TestRunProfileCommandNegative(unittest.TestCase):
         mock_check_nsys.return_value = False
         
         args = self._create_args()
+        
+        result = run_profile_command(args)
+        
+        self.assertEqual(result, 1)
+
+    @patch("ncompass.cli.profile.check_ncu_available")
+    def test_run_profile_command_ncu_not_available(self, mock_check_ncu):
+        """Test that missing ncu returns 1."""
+        mock_check_ncu.return_value = False
+        
+        args = self._create_args(ncu=True)
+        
+        result = run_profile_command(args)
+        
+        self.assertEqual(result, 1)
+
+    @patch("ncompass.cli.profile.run_ncu_profile")
+    @patch("ncompass.cli.profile.check_ncu_available")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_ncu_fails(
+        self, mock_create_dir, mock_check_ncu, mock_run_ncu
+    ):
+        """Test that NCU profiling failure returns 1."""
+        mock_check_ncu.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        mock_run_ncu.side_effect = Exception("NCU failed")
+        
+        args = self._create_args(ncu=True)
         
         result = run_profile_command(args)
         
@@ -513,6 +584,9 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
             "no_nc_range": False,
             "python_tracing": False,
             "cuda_graph_trace": "node",
+            "ncu": False,
+            "nvtx_include": "",
+            "kernel_name": "",
             "sample": "process-tree",
             "session_name": "nc0",
             "no_force": False,

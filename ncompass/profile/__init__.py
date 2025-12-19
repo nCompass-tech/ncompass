@@ -19,10 +19,16 @@ from ncompass.profile.nsys import (
     create_trace_directory,
     run_nsys_profile,
 )
+from ncompass.profile.ncu import (
+    check_ncu_available,
+    run_ncu_profile,
+)
 
 __all__ = [
     "check_nsys_available",
     "create_trace_directory",
     "run_nsys_profile",
+    "check_ncu_available",
+    "run_ncu_profile",
 ]
 
