@@ -1,0 +1,11 @@
+torch>=2.0.0
+nvtx>=0.2.14
+numpy>=2.2.0
+ninja
+setuptools
+wheel
+requests>=2.28.0
+pydantic>2.0.0
+orjson>=3.9.0
+tomli>=2.0.0
+typing_extensions>=4.0.0

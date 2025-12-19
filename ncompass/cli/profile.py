@@ -26,8 +26,10 @@ from pathlib import Path
 
 from ncompass.profile import (
     check_nsys_available,
+    check_ncu_available,
     create_trace_directory,
     run_nsys_profile,
+    run_ncu_profile,
 )
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
 from ncompass.trace.infra.utils import logger
@@ -56,6 +58,15 @@ Examples:
 
     # Profile with auto-conversion to Chrome trace
     ncompass profile --convert -- python train.py --epochs 10
+
+    # Profile with NCU (NVIDIA Nsight Compute)
+    ncompass profile --ncu -- python my_script.py
+
+    # Profile with NCU and NVTX filtering
+    ncompass profile --ncu --nvtx-include "ncu_profile/" -- python my_script.py
+
+    # Profile with NCU and kernel name filtering
+    ncompass profile --ncu --kernel-name "regex:.*gemm.*" -- python my_script.py
 
     # Profile with custom trace types
     ncompass profile --trace-types cuda,nvtx -- python my_script.py
@@ -127,6 +138,26 @@ Note: All ncompass options must appear BEFORE the -- separator.
         help="CUDA graph trace mode (default: node)",
     )
 
+    # NCU options
+    ncu_group = parser.add_argument_group("NCU options")
+    ncu_group.add_argument(
+        "--ncu",
+        action="store_true",
+        help="Use NVIDIA Nsight Compute (ncu) instead of nsys for profiling",
+    )
+    ncu_group.add_argument(
+        "--nvtx-include",
+        type=str,
+        default="",
+        help="NVTX range filter for NCU profiling (e.g., 'ncu_profile/')",
+    )
+    ncu_group.add_argument(
+        "--kernel-name",
+        type=str,
+        default="",
+        help="Kernel name filter for NCU profiling (e.g., 'regex:.*gemm.*')",
+    )
+
     # Advanced options
     advanced_group = parser.add_argument_group("Advanced options")
     advanced_group.add_argument(
@@ -187,16 +218,8 @@ Note: All ncompass options must appear BEFORE the -- separator.
     return parser
 
 
-def run_profile_command(args: argparse.Namespace) -> int:
-    """Execute the profile command.
-
-    Args:
-        args: Parsed command-line arguments
-
-    Returns:
-        Exit code (0 for success, non-zero for failure)
-    """
-    # Configure logging
+def _configure_logging(args: argparse.Namespace) -> None:
+    """Configure logging level based on verbosity flags."""
     if args.verbose:
         logger.setLevel(logging.DEBUG)
     elif args.quiet:
@@ -204,24 +227,32 @@ def run_profile_command(args: argparse.Namespace) -> int:
     else:
         logger.setLevel(logging.INFO)
 
-    # Get user command from args (set by main.py after parsing)
-    user_command: list[str] = getattr(args, "user_command", [])
 
-    # Validate command is provided
-    if not user_command:
-        logger.error("No command specified. Usage: ncompass profile [options] -- <command>")
-        return 1
+def _check_profiler_availability(args: argparse.Namespace) -> bool:
+    """Check if the required profiler (nsys or ncu) is available."""
+    if args.ncu:
+        if not check_ncu_available():
+            logger.error(
+                "ncu command not found. Please ensure NVIDIA Nsight Compute is installed "
+                "and available in your PATH."
+            )
+            logger.error("Download from: https://developer.nvidia.com/nsight-compute")
+            return False
+    else:
+        if not check_nsys_available():
+            logger.error(
+                "nsys command not found. Please ensure NVIDIA Nsight Systems is installed "
+                "and available in your PATH."
+            )
+            logger.error("Download from: https://developer.nvidia.com/nsight-systems")
+            return False
+    return True
 
-    # Check nsys availability
-    if not check_nsys_available():
-        logger.error(
-            "nsys command not found. Please ensure NVIDIA Nsight Systems is installed "
-            "and available in your PATH."
-        )
-        logger.error("Download from: https://developer.nvidia.com/nsight-systems")
-        return 1
 
-    # Determine working directory - use current directory
+def _resolve_session_paths(
+    args: argparse.Namespace, user_command: list[str]
+) -> tuple[Path, Path, str]:
+    """Resolve working directory, trace directory, and output filename."""
     working_dir = Path.cwd()
 
     # Determine output directory
@@ -233,28 +264,74 @@ def run_profile_command(args: argparse.Namespace) -> int:
     else:
         trace_dir, timestamp = create_trace_directory(working_dir)
 
-    # Generate output name from first command element or use provided
+    # Generate output name
     if args.output:
         output_name = args.output
     else:
-        # Extract base name from first command element
         first_cmd = Path(user_command[0]).stem
         output_name = f"{first_cmd}_profile_{timestamp}"
 
-    # Log configuration
+    return working_dir, trace_dir, output_name
+
+
+def _execute_ncu_session(
+    args: argparse.Namespace,
+    user_command: list[str],
+    output_name: str,
+    trace_dir: Path,
+    working_dir: Path,
+) -> int:
+    """Execute an NCU profiling session."""
+    logger.info("=" * 80)
+    logger.info("Starting ncompass NCU profile session")
+    logger.info("=" * 80)
+    logger.info(f"  Command: {' '.join(user_command)}")
+    logger.info(f"  Output: {output_name}")
+    logger.info(f"  Trace directory: {trace_dir}")
+    logger.info(f"  Profiler: NCU (NVIDIA Nsight Compute)")
+    if args.kernel_name:
+        logger.info(f"  Kernel filter: {args.kernel_name}")
+    if args.nvtx_include:
+        logger.info(f"  NVTX filter: {args.nvtx_include}")
+    logger.info("=" * 80)
+
+    try:
+        _ = run_ncu_profile(
+            command=user_command,
+            output_name=output_name,
+            trace_dir=trace_dir,
+            working_dir=working_dir,
+            kernel_name=args.kernel_name,
+            nvtx_include=args.nvtx_include,
+        )
+    except Exception as e:
+        logger.error(f"NCU profiling failed: {e}")
+        return 1
+
+    return 0
+
+
+def _execute_nsys_session(
+    args: argparse.Namespace,
+    user_command: list[str],
+    output_name: str,
+    trace_dir: Path,
+    working_dir: Path,
+) -> int:
+    """Execute an nsys profiling session."""
     logger.info("=" * 80)
     logger.info("Starting ncompass profile session")
     logger.info("=" * 80)
     logger.info(f"  Command: {' '.join(user_command)}")
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
+    logger.info(f"  Profiler: nsys (NVIDIA Nsight Systems)")
     logger.info(f"  Trace types: {args.trace_types}")
     logger.info(f"  Python tracing: {args.python_tracing}")
     logger.info(f"  Auto-convert: {args.convert}")
     logger.info(f"  Using sudo: {not args.no_sudo}")
     logger.info("=" * 80)
 
-    # Run profiling
     nsys_rep_file = run_nsys_profile(
         command=user_command,
         output_name=output_name,
@@ -322,4 +399,42 @@ def run_profile_command(args: argparse.Namespace) -> int:
     logger.info("=" * 80)
 
     return 0
+
+
+def run_profile_command(args: argparse.Namespace) -> int:
+    """Execute the profile command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, non-zero for failure)
+    """
+    _configure_logging(args)
+
+    # Get user command from args (set by main.py after parsing)
+    user_command: list[str] = getattr(args, "user_command", [])
+
+    # Validate command is provided
+    if not user_command:
+        logger.error("No command specified. Usage: ncompass profile [options] -- <command>")
+        return 1
+
+    # Check profiler availability
+    if not _check_profiler_availability(args):
+        return 1
+
+    # Determine paths and names
+    working_dir, trace_dir, output_name = _resolve_session_paths(args, user_command)
+
+    # Run appropriate session
+    if args.ncu:
+        return _execute_ncu_session(
+            args, user_command, output_name, trace_dir, working_dir
+        )
+    else:
+        return _execute_nsys_session(
+            args, user_command, output_name, trace_dir, working_dir
+        )
+
 
