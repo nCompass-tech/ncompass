@@ -1,0 +1,5 @@
+requests
+pydantic>=2.0
+torch
+tomli
+orjson

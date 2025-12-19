@@ -1,0 +1,31 @@
+services:
+  flops_example:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - HOST_UID=${UID:-1000}
+        - HOST_GID=${GID:-1000}
+    image: nc_flops_example:0.0.1
+    container_name: flops_example
+    privileged: true
+    network_mode: host
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ${HOME}:${HOME}
+    working_dir: ${CURRENT_DIR}
+    environment:
+      - HOST_UID=${UID:-1000}
+      - HOST_GID=${GID:-1000}
+      - DISPLAY=${DISPLAY:-:0}
+      - HOME=${HOME}
+    stdin_open: true
+    tty: true
+    command: sleep infinity

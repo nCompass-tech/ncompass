@@ -1,0 +1,8 @@
+services:
+  flops_example:
+    command: 
+      - /bin/bash
+      - -c
+      - "uv pip uninstall ncompass && sleep infinity"
+    environment:
+      - PYTHONPATH=/home/ubuntu/vinay/ncompass:${PYTHONPATH}
