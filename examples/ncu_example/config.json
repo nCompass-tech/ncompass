@@ -1,0 +1,27 @@
+{
+  "targets": {
+    "simplenet": {
+      "class_replacements": {},
+      "class_func_replacements": {},
+      "class_func_context_wrappings": {},
+      "func_line_range_wrappings": [
+        {
+          "function": "main",
+          "start_line": 97,
+          "end_line": 97,
+          "context_class": "ncompass.trace.profile.nvtx.NvtxContext",
+          "context_values": [
+            {
+              "name": "name",
+              "value": "ncu_profile",
+              "type": "literal"
+            }
+          ]
+        }
+      ],
+      "filePath": "/home/ubuntu/vinay/ncompass/examples/ncu_example/simplenet.py"
+    }
+  },
+  "ai_analysis_targets": [],
+  "full_trace_mode": false
+}

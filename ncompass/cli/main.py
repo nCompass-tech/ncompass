@@ -43,6 +43,15 @@ Examples:
     # Profile with auto-conversion to Chrome trace
     ncompass profile --convert -- python my_script.py --epochs 10
 
+    # Profile with NCU (NVIDIA Nsight Compute)
+    ncompass profile --ncu -- python my_script.py
+
+    # Profile with NCU and NVTX filtering
+    ncompass profile --ncu --nvtx-include "ncu_profile/" -- python my_script.py
+
+    # Profile with NCU and kernel name filtering
+    ncompass profile --ncu --kernel-name "regex:.*gemm.*" -- python my_script.py
+
     # Profile any executable
     ncompass profile -c -- ./my_cuda_app --config config.yaml
 
