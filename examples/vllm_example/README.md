@@ -34,16 +34,16 @@ user). This way the container is root, so you don't have to use sudo with nsys
 
 ### nsys run command
 ```bash
-NCOMPASS_CACHE_DIR=<>\
-NCOMPASS_PROFILER_TYPE=<>\
+NCOMPASS_CACHE_DIR=<path to top directory that contains the .cache/ dir>\
+NCOMPASS_PROFILER_TYPE=NVTX\
   ncompass profile --no-sudo -- python main.py --nsys
 ```
 
 ### torch profiler run command
 ```bash
 VLLM_TORCH_PROFILER_DIR=.torch_traces\
-NCOMPASS_CACHE_DIR=<>\
-NCOMPASS_PROFILER_TYPE=<>\
+NCOMPASS_CACHE_DIR=<path to top directory that contains the .cache/ dir>\
+NCOMPASS_PROFILER_TYPE=Torch\
   python main.py --torch
 ```
 
