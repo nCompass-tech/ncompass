@@ -184,8 +184,8 @@ def install_vllm(compose_files: list[str], env: dict[str, str], name: str) -> No
         print("Please ensure only one vllm*.whl file exists in the directory.", file=sys.stderr)
         sys.exit(1)
     
-    wheel_file = wheel_files[0].name
-    install_cmd = f"VLLM_PRECOMPILED_WHEEL_LOCATION=$(pwd)/{wheel_file} uv pip install -e vllm_src/"
+    wheel_file = wheel_files[0].absolute()
+    install_cmd = f"VLLM_PRECOMPILED_WHEEL_LOCATION={wheel_file} uv pip install -e vllm_src/"
     
     print(f"Installing vllm with precompiled wheel: {wheel_file}...")
     result = execute_in_container(
