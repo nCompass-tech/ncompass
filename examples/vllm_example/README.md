@@ -1,11 +1,24 @@
 # VLLM Example
 
-# Setup commands:
+# Docker based build
+
+This example has a Dockerfile based setup that installs vLLM 0.1.12 based on a git LFS tracked .whl
+file. This also installs nsys into the docker container so that you have all the necessary
+dependencies. However, you don't have to use this to run vLLM, you can just use your own version of
+the vLLM code base that you're running as is and ensure that you have the following dependencies:
+- nsight systems (if you want to run profiling with nsys)
+- the ncompass SDK installed:
+  -  You can take a look at the "Notes on developemnt" section below to understand why we can't
+  install the ncomapss SDK with the -e flag, but if you want to install the SDK from src code, just
+  run `pip install ../../` (without -e).
+
+If you want to use the docker based system we provide, run the following:
+## Setup commands:
 ```bash
 python -m nc_pkg --build --run
 ```
 
-# Shutdown commands:
+## Shutdown commands:
 ```bash
 python -m nc_pkg --down
 ```
@@ -16,7 +29,7 @@ python -m nc_pkg --down
 ```bash
 NCOMPASS_CACHE_DIR=<>\
 NCOMPASS_PROFILER_TYPE=<>\
-  ncompass profile -- /opt/venv/bin/python main.py --nsys
+  ncompass profile -- <absoulte path to python executable> main.py --nsys
 ```
 
 ### torch profiler run command
@@ -24,13 +37,14 @@ NCOMPASS_PROFILER_TYPE=<>\
 VLLM_TORCH_PROFILER_DIR=.torch_traces\
 NCOMPASS_CACHE_DIR=<>\
 NCOMPASS_PROFILER_TYPE=<>\
-  /opt/venv/bin/python main.py --torch
+  <absoulte path to python executable> main.py --torch
 ```
 
 ## Run commands (without sudo): 
 
-To run without sudo, you need to edit the Dockerfile to not have the last line (the one that sets
-user). This way the container is root, so you don't have to use sudo with nsys
+If using the docker build setup, to run without sudo, you need to edit the Dockerfile 
+to not have the last line (the one that sets user). This way the container is root, 
+so you don't have to use sudo with nsys
 
 ### nsys run command
 ```bash
@@ -54,7 +68,7 @@ with -e).
 Basically, we've added two files `ncompass.pth` and `ncompass_init.py` which get added to the pip
 package which deal with doing the rewrites by calling `enable_rewrites`. `.pth` files (if found in
 `..../site-packages/*.pth`) are called on startup of each python process. This way, we don't need
-to enforce things like `enable_rewrites` needs to be called at the module level and not inside
+to enforce things like: `enable_rewrites` needs to be called at the module level and not inside
 functions etc.
 
 But the build process for packaging `*.pth` files (using `setup.py`) means that we can't get `-e`
