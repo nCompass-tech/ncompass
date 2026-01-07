@@ -380,8 +380,6 @@ class TestLocalImports(unittest.TestCase):
             if name in sys.modules:
                 del sys.modules[name]
     
-    @unittest.skip("Known issue: update_module_references doesn't work when canonicalization changes module name. "
-                   "old_modules uses original name but new module is under canonical name.")
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
     def test_reimport_modules_local_import_before_enable_rewrites(self):
         """Test reimport_modules when module was imported locally before enable_rewrites.
@@ -437,8 +435,6 @@ class TestLocalImports(unittest.TestCase):
         self.assertIs(main_module.Model.forward, new_model_module.Model.forward,
                      "Forward method should be from new module")
     
-    @unittest.skip("Known issue: update_module_references doesn't work when canonicalization changes module name. "
-                   "old_modules uses original name but new module is under canonical name.")
     @patch.dict('os.environ', {'USE_AI_PROFILING': 'false'})
     def test_reimport_with_ast_rewrites_applied(self):
         """Test that AST rewrites are actually applied when reimporting a locally imported module.
