@@ -1,6 +1,0 @@
-*.json
-*.sqlite
-ncompass
-*.nsys-rep
-!test_files/test_trace.nsys-rep
-*.json.gz

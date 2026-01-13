@@ -1,3 +1,0 @@
-ncompass
-*.json
-!test_files/test_trace.pt.trace.json

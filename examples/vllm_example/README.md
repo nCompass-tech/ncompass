@@ -1,83 +1,175 @@
-# VLLM Example
+# vLLM Profiling with NCU and Nsys
 
-# Docker based build
+This example demonstrates how to profile vLLM inference using NVIDIA Nsight Compute (NCU) for kernel-level metrics and Nsight Systems (Nsys) for timeline analysis.
 
-This example has a Dockerfile based setup that installs vLLM 0.1.12 based on a git LFS tracked .whl
-file. This also installs nsys into the docker container so that you have all the necessary
-dependencies. However, you don't have to use this to run vLLM, you can just use your own version of
-the vLLM code base that you're running as is and ensure that you have the following dependencies:
-- nsight systems (if you want to run profiling with nsys)
-- the ncompass SDK installed:
-  -  You can take a look at the "Notes on developemnt" section below to understand why we can't
-  install the ncomapss SDK with the -e flag, but if you want to install the SDK from src code, just
-  run `pip install ../../` (without -e).
+## What This Example Does
 
-If you want to use the docker based system we provide, run the following:
-## Setup commands:
+- **NCU Profiling**: Generate detailed CSV reports with per-kernel GPU metrics (timing, memory bandwidth, FLOPs)
+- **Nsys Profiling**: Create timeline traces for visualizing the execution flow
+- **Torch Profiling**: Use vLLM's built-in PyTorch profiler
+
+## Prerequisites
+
+- **Python 3.10+**
+- **NVIDIA GPU** with CUDA support
+- **Docker** (recommended) or local installation of:
+  - NVIDIA Nsight Compute (`ncu`)
+  - NVIDIA Nsight Systems (`nsys`)
+- **HuggingFace Token** (for gated models)
+- [nCompass VSCode Extension](https://docs.ncompass.tech)
+
+## Check NCU Privileges (GPU Host Machine)
+
+On your GPU **host** machine, verify NCU has proper privileges:
+
 ```bash
-python -m nc_pkg --build --run
+cat /proc/driver/nvidia/params | grep RmProfilingAdminOnly
 ```
 
-## Shutdown commands:
+If the output shows `RmProfilingAdminOnly: 1`, run:
+
 ```bash
-python -m nc_pkg --down
+sudo rmmod nvidia_uvm
+sudo rmmod nvidia_drm
+sudo rmmod nvidia_modeset
+sudo rmmod nvidia
+sudo modprobe nvidia NVreg_RestrictProfilingToAdminUsers=0
 ```
 
-# Run commands (with sudo):
+## Quick Start (Docker - Recommended)
+### Step 0: Initial Setup (Required Once)
 
-### nsys run command
+Before using any Docker commands, you must run the setup to create the symlink to the shared Docker infrastructure:
+
 ```bash
-NCOMPASS_CACHE_DIR=<>\
-NCOMPASS_PROFILER_TYPE=<>\
-  ncompass profile -- <absoulte path to python executable> main.py --nsys
+# Run from the vllm_example directory
+python nc_pkg.py --setup --docker-dir ../docker --wheel wheels/<vllm-version>
+```
+This creates a `docker` symlink pointing to the shared Docker configuration in `examples/docker/`.
+
+### Step 1: Setup Environment Config
+
+```bash
+cp env_config.yaml.example env_config.yaml
+# Edit env_config.yaml and add your HF_TOKEN
 ```
 
-### torch profiler run command
+### Step 2: Build and Run Container
+
 ```bash
-VLLM_TORCH_PROFILER_DIR=.torch_traces\
-NCOMPASS_CACHE_DIR=<>\
-NCOMPASS_PROFILER_TYPE=<>\
-  <absoulte path to python executable> main.py --torch
+# Build the Docker image
+python nc_pkg.py --build
+
+# Run the container (interactive shell)
+python nc_pkg.py --run --ncompass-dir ../../../ncompass
+
+# Optional: Install vllm from source
+python nc_pkg.py --run --ncompass-dir ../../../ncompass
 ```
 
-## Run commands (without sudo): 
+### Step 4: Run Profiling (Inside Container)
 
-If using the docker build setup, to run without sudo, you need to edit the Dockerfile 
-to not have the last line (the one that sets user). This way the container is root, 
-so you don't have to use sudo with nsys
-
-### nsys run command
 ```bash
-NCOMPASS_CACHE_DIR=<path to top directory that contains the .cache/ dir>\
-NCOMPASS_PROFILER_TYPE=NVTX\
-  ncompass profile --no-sudo -- python main.py --nsys
+# NCU profiling (with VSCode extension markers)
+NCOMPASS_CACHE_DIR=./ NCOMPASS_PROFILER_TYPE=NVTX ncompass profile --ncu -- python main.py --nvtx
+
+# Nsys profiling (uses manual ncompass_nsys_range marker in code)
+ncompass profile --nsys -- python main.py --nvtx --model Qwen/Qwen2.5-0.5B
+
+# Torch profiling
+VLLM_TORCH_PROFILER_DIR=.torch_traces python main.py --torch --model Qwen/Qwen2.5-0.5B
 ```
 
-### torch profiler run command
+## Quick Start (Local)
+You can use the commands in `nc_pkg.py` as a guideline to how to setup the environment locally, but
+before running you need to have the following installed:
+- Packages in `requirements.txt`
+- ncompass installed (from source using `pip install ../../` or otherwise)
+- vllm installed (from source or otherwise)
+- Pre-requisites mentioned above
+
+Once all of these are installed, you can just run the same Step 4 above or based on the details
+below to run profiling. 
+
+## Profiling Modes
+
+### NCU Profiling (Kernel-Level Metrics)
+
+NCU provides detailed per-kernel metrics including:
+- GPU time duration
+- Memory throughput (DRAM, L2, L1)
+- Floating-point operations (FP32, FP16, FP64)
+- SM utilization
+
+**How NCU range selection works**: The nCompass VSCode extension allows you to add NVTX markers to code without modifying it. These markers control which code regions NCU profiles. The default filter is `regex:user_annotated:.*/`.
+
+**Note:** ncu profiling is expensive and to run it on a large code base like vLLM, you want to
+restrict which regions (and sometimes kernels) you want to actually collect for. Because of this,
+the ncompass SDK wrapping for ncu forces you to have constrained the program in some way using our
+SDK. The constraining capabilities will improve over time.
+
+This is why, to use the ncu profiling example, you need to first use our SDK to add a NVTX
+profiling marker - [Tutorial](https://docs.ncompass.tech/Adding-benchmark-debug-code-without-editing-the-codbase-2e3097a5a430801d8c5cca6d0194e99e)
+
+1. Open vLLM source files in VSCode with the nCompass extension
+2. Highlight code regions to profile
+3. Press `Ctrl+.` and select "Add Region to Profile" > "NVTX"
+4. Run the following commands
 ```bash
-VLLM_TORCH_PROFILER_DIR=.torch_traces\
-NCOMPASS_CACHE_DIR=<path to top directory that contains the .cache/ dir>\
-NCOMPASS_PROFILER_TYPE=Torch\
-  python main.py --torch
+# Set environment variables for nCompass NVTX injection
+export NCOMPASS_CACHE_DIR=<path to directory containing .cache/>
+export NCOMPASS_PROFILER_TYPE=NVTX
+
+# Run NCU profiling
+ncompass profile --ncu -- python main.py --nvtx
+
+# Override default options via extra args
+ncompass profile --ncu -- --kernel-name="regex:.*gemm.*" -- python main.py --nvtx
 ```
 
-# Notes on development
-Because of the way the ncompass SDK is now built, we can't install it in development mode (i.e.
-with -e).
+Output: `.ncu-rep` file and CSV in `.nsys_traces/<timestamp>/` directory
 
-Basically, we've added two files `ncompass.pth` and `ncompass_init.py` which get added to the pip
-package which deal with doing the rewrites by calling `enable_rewrites`. `.pth` files (if found in
-`..../site-packages/*.pth`) are called on startup of each python process. This way, we don't need
-to enforce things like: `enable_rewrites` needs to be called at the module level and not inside
-functions etc.
+### Nsys Profiling (Timeline Analysis)
 
-But the build process for packaging `*.pth` files (using `setup.py`) means that we can't get `-e`
-builds to put those files somewhere in the PYTHONPATH. 
+Nsys creates timeline traces showing the execution flow across CPU and GPU.
 
-To see the logic of `enable_rewrites`, look at `ncompass_init.py`. We basically construct the path
-to the `config.json` using `NCOMPASS_CACHE_DIR` and `NCOMPASS_PROFILER_TYPE`. There's error
-handling to ensure both of them need to be specified if either one is.
+**How Nsys range selection works**: Unlike NCU, Nsys capture ranges require a **manual NVTX marker in the code**. The marker `nvtx.annotate(message="ncompass_nsys_range")` in `main.py` defines the capture region:
 
-If there's an error that occurs in `ncompass_init.py`, default python behavior is to not cause the
-program to crash, which means that it'll throw a bunch of error messages, but won't stop execution
-of the user's program.
+```python
+with nvtx.annotate(message="ncompass_nsys_range"):
+    outputs = llm.generate([test_prompt], sampling_params)
+```
+
+```bash
+# Run with ncompass CLI
+ncompass profile --nsys -- python main.py --nvtx --model Qwen/Qwen2.5-0.5B
+```
+
+Output: `.nsys-rep` file that can be viewed in Nsight Systems GUI or converted to Chrome trace
+
+Adding markers using the nCompass VSCode Extension will show up in the trace itself. The `annotate`
+command mentined above is only required to enable and disable nsys profiling.
+
+### Torch Profiling
+
+Uses vLLM's built-in PyTorch profiler.
+
+```bash
+export VLLM_TORCH_PROFILER_DIR=.torch_traces
+python main.py --torch --model Qwen/Qwen2.5-0.5B
+```
+
+Output: PyTorch trace files in the specified directory
+
+## Additional Resources
+
+- [nCompass Documentation](https://docs.ncompass.tech)
+- [NVIDIA Nsight Compute Documentation](https://docs.nvidia.com/nsight-compute/)
+- [NVIDIA Nsight Systems Documentation](https://docs.nvidia.com/nsight-systems/)
+
+## Support
+
+For questions or issues:
+- Check the [Documentation](https://docs.ncompass.tech)
+- Visit the [Community Forum](https://community.ncompass.tech)
+- Open an issue on [GitHub](https://github.com/ncompass-tech/ncompass/issues)
