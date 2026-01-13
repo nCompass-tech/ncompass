@@ -14,7 +14,7 @@ This example shows how to:
 
 Before you begin, ensure you have:
 
-- **Python 3.11+** (required)
+- **Python 3.10+** (required)
 - **NVIDIA Nsight Compute CLI** (`ncu` command) installed and available in your PATH
   - Download from: [NVIDIA Nsight Compute](https://developer.nvidia.com/nsight-compute)
   - Verify installation: `ncu --version`
@@ -48,7 +48,7 @@ Create a virtual environment and install the required packages:
 
 ```bash
 # Create a virtual environment
-python3.11 -m venv venv-ncu-example
+python3 -m venv venv-ncu-example
 
 # Activate the virtual environment
 source venv-ncu-example/bin/activate  # On Windows: venv-ncu-example\Scripts\activate

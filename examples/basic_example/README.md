@@ -14,7 +14,7 @@ This example demonstrates how to profile PyTorch neural network training using t
 
 Before you begin, ensure you have:
 
-- **Python 3.11+** (required)
+- **Python 3.10+** (required)
 - **CUDA-capable GPU**
 - **VSCode** with the [nCompass extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode) installed
 
@@ -26,7 +26,7 @@ Create a virtual environment and install the required packages:
 
 ```bash
 # Create a virtual environment
-python3.11 -m venv venv-basic-example
+python3 -m venv venv-basic-example
 
 # Activate the virtual environment
 source venv-basic-example/bin/activate  # On Windows: venv-basic-example\Scripts\activate
@@ -35,7 +35,7 @@ source venv-basic-example/bin/activate  # On Windows: venv-basic-example\Scripts
 pip install -r requirements.txt
 ```
 
-> ⚠️ **Troubleshooting**: If you encounter issues with `ncompasslib` or `pydantic`, ensure you're running Python 3.11 and have `Pydantic>=2.0` installed.
+> ⚠️ **Troubleshooting**: If you encounter issues with `ncompasslib` or `pydantic`, ensure you're running Python 3.10 and have `Pydantic>=2.0` installed.
 
 ### Step 2: Set Up the VSCode Extension
 
@@ -187,7 +187,7 @@ file should be generated at `.cache/ncompass/profiles/.default/.default/current/
 ### Issue: Import errors with ncompasslib or pydantic
 
 **Solution**: 
-- Ensure you're using Python 3.11+
+- Ensure you're using Python 3.10+
 - Install `Pydantic>=2.0`: `pip install "pydantic>=2.0"`
 - Reinstall ncompass: `pip install --upgrade ncompass`
 

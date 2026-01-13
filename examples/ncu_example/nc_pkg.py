@@ -10,60 +10,11 @@ def get_compose_files() -> list[str]:
     Get the list of docker compose files to use based on what exists.
     
     Returns:
-        List of compose file flags (e.g., ["-f", "docker-compose.yaml", "-f", "docker-compose.ncompass.yaml"])
+        List of compose file flags (e.g., ["-f", "docker-compose.yaml"])
     """
     compose_files = ["-f", "docker-compose.yaml"]
     
-    ncompass_dir = Path("./ncompass")
-    if ncompass_dir.exists():
-        compose_files.extend(["-f", "docker-compose.ncompass.yaml"])
-        print("Using docker-compose.ncompass.yaml (local ncompass directory found)")
-    
     return compose_files
-
-def ensure_ncompass_symlink():
-    """
-    Check if a symlink to ncompass exists. If not, prompt the user for a path.
-    
-    Returns:
-        bool: True if symlink exists or was created, False otherwise.
-    """
-    ncompass_dir = Path("./ncompass")
-    
-    if ncompass_dir.exists():
-        return True
-            
-    # Prompt user for path
-    print("\nnCompass source directory not found in current directory.")
-    try:
-        print("Please enter the full path to the ncompass sdk directory. Eg. /home/ubuntu/<your workspace>/ncompass/ncompass")
-        path_str = input("Path: ").strip()
-    except EOFError:
-        print("Error: Could not read input.")
-        return False
-    
-    if not path_str:
-        print("Error: No path provided.")
-        return False
-        
-    src_path = Path(path_str).absolute()
-    
-    if not src_path.exists() or not src_path.is_dir():
-        print(f"Error: Path '{src_path}' does not exist or is not a directory.")
-        return False
-        
-    if src_path.name != "ncompass":
-        print(f"Error: Path must end with '/ncompass' (got '{src_path.name}').")
-        return False
-        
-    # Create symlink
-    try:
-        os.symlink(src_path, ncompass_dir)
-        print(f"Created symlink: {ncompass_dir} -> {src_path}")
-        return True
-    except Exception as e:
-        print(f"Error creating symlink: {e}")
-        return False
 
 def get_compose_env() -> dict[str, str]:
     """
@@ -199,13 +150,53 @@ def execute_in_container(
         capture_output=not interactive
     )
 
-def run_container(tag: str, name: str, auto_exec: bool = True):
+def install_ncompass(compose_files: list[str], env: dict[str, str], name: str, ncompass_dir: str) -> None:
+    """
+    Install ncompass
+    
+    Args:
+        compose_files: List of compose file flags
+        env: Environment variables dictionary
+        name: Service name
+        ncompass_dir: Path to ncompass directory
+    """
+    ncompass_path = Path(ncompass_dir).absolute()
+    if not ncompass_path.exists() or not ncompass_path.is_dir():
+        print(f"Error: Path '{ncompass_path}' does not exist or is not a directory.")
+        sys.exit(1)
+    elif ncompass_path.name != "ncompass":
+        print(f"Error: Path must end with '/ncompass' (got '{ncompass_path.name}').")
+        sys.exit(1)
+
+    install_cmd = f"uv pip install {ncompass_path}"
+    
+    print("Installing ncompass in editable mode...")
+    result = execute_in_container(
+        compose_files,
+        env,
+        name,
+        ["/bin/bash", "-c", install_cmd],
+        interactive=False
+    )
+    
+    if result.stdout:
+        print(result.stdout, end='')
+    if result.stderr:
+        print(result.stderr, end='', file=sys.stderr)
+    
+    if result.returncode != 0:
+        print(f"Warning: ncompass installation failed with exit code {result.returncode}")
+    else:
+        print("ncompass installation complete.")
+
+def run_container(tag: str, name: str, ncompass_dir: str, auto_exec: bool = True):
     """
     Run the Docker container using docker compose.
     
     Args:
         tag: Docker image tag
         name: Service name (must match docker-compose service name)
+        ncompass_dir: Path to ncompass directory
         auto_exec: Whether to automatically exec into the container
     """
     print("Running the Docker container with docker compose...")
@@ -217,6 +208,9 @@ def run_container(tag: str, name: str, auto_exec: bool = True):
     
     # Ensure container is running
     force_restart_container(compose_files, env)
+
+    # Install ncompass in editable mode
+    install_ncompass(compose_files, env, name, ncompass_dir)
 
     if auto_exec:
         print(f"Executing interactive shell in container '{name}'...")
@@ -230,13 +224,14 @@ def run_container(tag: str, name: str, auto_exec: bool = True):
     else:
         print(f"\nTo connect to the container, run: docker exec -it {name} /bin/bash")
 
-def exec_command(tag: str, name: str, command: str):
+def exec_command(tag: str, name: str, ncompass_dir: str, command: str):
     """
     Execute a command in the running container.
     
     Args:
         tag: Docker image tag (unused, kept for consistency)
         name: Service name (must match docker-compose service name)
+        ncompass_dir: Path to ncompass directory
         command: Command string to execute in bash shell
     """
     compose_files = get_compose_files()
@@ -245,6 +240,9 @@ def exec_command(tag: str, name: str, command: str):
     # Ensure container is running
     force_restart_container(compose_files, env)
     
+    # Install ncompass in editable mode
+    install_ncompass(compose_files, env, name, ncompass_dir)
+
     # Execute the command in bash
     print(f"Executing command in container '{name}': {command}")
     result = execute_in_container(
@@ -286,6 +284,10 @@ def parse_args():
         '--no-exec', action='store_true',
         help='Do not automatically exec into the container'
     )
+    parser.add_argument(
+        '--ncompass-dir', type=str,
+        help='Path to the ncompass directory (required for --run and --exec)'
+    )
     
     if len(sys.argv) == 1:
         parser.print_help()
@@ -310,15 +312,16 @@ def main():
         env = get_compose_env()
         down_container(compose_files, env)
     
-    if args.exec is not None:
-        if not ensure_ncompass_symlink():
+    if args.run or args.exec is not None:
+        if not args.ncompass_dir:
+            print("Error: --ncompass-dir is required when using --run or --exec")
             sys.exit(1)
-        exec_command(tag=args.tag, name=args.name, command=args.exec)
-    
-    if args.run:
-        if not ensure_ncompass_symlink():
-            sys.exit(1)
-        run_container(tag=args.tag, name=args.name, auto_exec=not args.no_exec)
+            
+        if args.exec is not None:
+            exec_command(tag=args.tag, name=args.name, ncompass_dir=args.ncompass_dir, command=args.exec)
+        
+        if args.run:
+            run_container(tag=args.tag, name=args.name, ncompass_dir=args.ncompass_dir, auto_exec=not args.no_exec)
 
 if __name__ == '__main__':
     main()

@@ -17,7 +17,7 @@ This example shows how to:
 
 Before you begin, ensure you have:
 
-- **Python 3.11+** (required)
+- **Python 3.10+** (required)
 - **Modal account**: Sign up at [modal.com](https://modal.com) and authenticate
 - **VSCode** with the [nCompass extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode) installed
 
@@ -29,7 +29,7 @@ Create a virtual environment and install the required packages:
 
 ```bash
 # Create a virtual environment
-python3.11 -m venv venv-modal-example
+python3 -m venv venv-modal-example
 
 # Activate the virtual environment
 source venv-modal-example/bin/activate  # On Windows: venv-modal-example\Scripts\activate
@@ -273,7 +273,7 @@ modal run torch_profiling_example.py --label "large" --hidden-size 1024
 ### Issue: Import errors with ncompass
 
 **Solution**:
-- Ensure you're using Python 3.11+
+- Ensure you're using Python 3.10+
 - The Modal image automatically installs nCompass SDK, but verify the version in the script
 - Check Modal logs: `modal app logs example-torch-profiling`
 

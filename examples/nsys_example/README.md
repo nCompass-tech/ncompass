@@ -15,7 +15,7 @@ This example shows how to:
 
 Before you begin, ensure you have:
 
-- **Python 3.11+** (required)
+- **Python 3.10+** (required)
 - **NVIDIA Nsight Systems CLI** (`nsys` command) installed and available in your PATH
   - Download from: [NVIDIA Nsight Systems](https://developer.nvidia.com/nsight-systems)
   - Verify installation: `nsys --version`
@@ -50,7 +50,7 @@ Create a virtual environment and install the required packages:
 
 ```bash
 # Create a virtual environment
-python3.11 -m venv venv-nsys-example
+python3 -m venv venv-nsys-example
 
 # Activate the virtual environment
 source venv-nsys-example/bin/activate  # On Windows: venv-nsys-example\Scripts\activate
@@ -59,7 +59,7 @@ source venv-nsys-example/bin/activate  # On Windows: venv-nsys-example\Scripts\a
 pip install -r requirements.txt
 ```
 
-> ⚠️ **Troubleshooting**: If you encounter issues with `ncompasslib` or `pydantic`, ensure you're running Python 3.11 and have `Pydantic>=2.0` installed.
+> ⚠️ **Troubleshooting**: If you encounter issues with `ncompasslib` or `pydantic`, ensure you're running Python 3.10 and have `Pydantic>=2.0` installed.
 
 ### Step 2: Verify nsys Installation
 

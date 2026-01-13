@@ -10,14 +10,9 @@ def get_compose_files() -> list[str]:
     Get the list of docker compose files to use based on what exists.
     
     Returns:
-        List of compose file flags (e.g., ["-f", "docker-compose.yaml", "-f", "docker-compose.ncompass.yaml"])
+        List of compose file flags (e.g., ["-f", "docker-compose.yaml"])
     """
     compose_files = ["-f", "docker-compose.yaml"]
-    
-    ncompass_dir = Path("./ncompass")
-    if ncompass_dir.exists():
-        compose_files.extend(["-f", "docker-compose.ncompass.yaml"])
-        print("Using docker-compose.ncompass.yaml for ncompass mount")
     
     return compose_files
 
@@ -155,13 +150,53 @@ def execute_in_container(
         capture_output=not interactive
     )
 
-def run_container(tag: str, name: str, auto_exec: bool = True):
+def install_ncompass(compose_files: list[str], env: dict[str, str], name: str, ncompass_dir: str) -> None:
+    """
+    Install ncompass
+    
+    Args:
+        compose_files: List of compose file flags
+        env: Environment variables dictionary
+        name: Service name
+        ncompass_dir: Path to ncompass directory
+    """
+    ncompass_path = Path(ncompass_dir).absolute()
+    if not ncompass_path.exists() or not ncompass_path.is_dir():
+        print(f"Error: Path '{ncompass_path}' does not exist or is not a directory.")
+        sys.exit(1)
+    elif ncompass_path.name != "ncompass":
+        print(f"Error: Path must end with '/ncompass' (got '{ncompass_path.name}').")
+        sys.exit(1)
+
+    install_cmd = f"uv pip install {ncompass_path}"
+    
+    print("Installing ncompass in editable mode...")
+    result = execute_in_container(
+        compose_files,
+        env,
+        name,
+        ["/bin/bash", "-c", install_cmd],
+        interactive=False
+    )
+    
+    if result.stdout:
+        print(result.stdout, end='')
+    if result.stderr:
+        print(result.stderr, end='', file=sys.stderr)
+    
+    if result.returncode != 0:
+        print(f"Warning: ncompass installation failed with exit code {result.returncode}")
+    else:
+        print("ncompass installation complete.")
+
+def run_container(tag: str, name: str, ncompass_dir: str, auto_exec: bool = True):
     """
     Run the Docker container using docker compose.
     
     Args:
         tag: Docker image tag
         name: Service name (must match docker-compose service name)
+        ncompass_dir: Path to ncompass directory
         auto_exec: Whether to automatically exec into the container
     """
     print("Running the Docker container with docker compose...")
@@ -173,6 +208,9 @@ def run_container(tag: str, name: str, auto_exec: bool = True):
     
     # Ensure container is running
     force_restart_container(compose_files, env)
+
+    # Install ncompass in editable mode
+    install_ncompass(compose_files, env, name, ncompass_dir)
 
     if auto_exec:
         print(f"Executing interactive shell in container '{name}'...")
@@ -186,13 +224,14 @@ def run_container(tag: str, name: str, auto_exec: bool = True):
     else:
         print(f"\nTo connect to the container, run: docker exec -it {name} /bin/bash")
 
-def exec_command(tag: str, name: str, command: str):
+def exec_command(tag: str, name: str, ncompass_dir: str, command: str):
     """
     Execute a command in the running container.
     
     Args:
         tag: Docker image tag (unused, kept for consistency)
         name: Service name (must match docker-compose service name)
+        ncompass_dir: Path to ncompass directory
         command: Command string to execute in bash shell
     """
     compose_files = get_compose_files()
@@ -201,6 +240,9 @@ def exec_command(tag: str, name: str, command: str):
     # Ensure container is running
     force_restart_container(compose_files, env)
     
+    # Install ncompass in editable mode
+    install_ncompass(compose_files, env, name, ncompass_dir)
+
     # Execute the command in bash
     print(f"Executing command in container '{name}': {command}")
     result = execute_in_container(
@@ -242,6 +284,10 @@ def parse_args():
         '--no-exec', action='store_true',
         help='Do not automatically exec into the container'
     )
+    parser.add_argument(
+        '--ncompass-dir', type=str,
+        help='Path to the ncompass directory (required for --run and --exec)'
+    )
     
     return parser.parse_args()
 
@@ -262,11 +308,16 @@ def main():
         env = get_compose_env()
         down_container(compose_files, env)
     
-    if args.exec is not None:
-        exec_command(tag=args.tag, name=args.name, command=args.exec)
-    
-    if args.run:
-        run_container(tag=args.tag, name=args.name, auto_exec=not args.no_exec)
+    if args.run or args.exec is not None:
+        if not args.ncompass_dir:
+            print("Error: --ncompass-dir is required when using --run or --exec")
+            sys.exit(1)
+            
+        if args.exec is not None:
+            exec_command(tag=args.tag, name=args.name, ncompass_dir=args.ncompass_dir, command=args.exec)
+        
+        if args.run:
+            run_container(tag=args.tag, name=args.name, ncompass_dir=args.ncompass_dir, auto_exec=not args.no_exec)
 
 if __name__ == '__main__':
     main()
