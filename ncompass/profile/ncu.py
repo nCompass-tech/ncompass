@@ -266,7 +266,7 @@ def get_metrics_str(metrics_list: list[str], ncu_bin: str = "ncu") -> str:
             logger.debug(f"  {metric}")
 
     if not filtered_metrics:
-        raise ValueError("No valid metrics found in NCU matching the given list: {metrics_list}")
+        raise ValueError(f"No valid metrics found in NCU matching the given list: {metrics_list}")
 
     metrics_str = ",".join(filtered_metrics)
     logger.info(f"Using {len(filtered_metrics)} metrics")

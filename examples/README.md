@@ -12,13 +12,44 @@ The best way to use nCompass is through our **[VSCode extension](https://marketp
 
 Each example is self-contained and demonstrates different profiling workflows:
 
-- **[Basic Example - TorchRecord Profiling](basic_example/)** — Get started with PyTorch profiling using automatic tracepoint injection
-- **[Nsight Systems Example](nsys_example/)** — Profile GPU kernels with Nsight Systems integration and convert nsys traces to chrome traces to view in the VSCode IDE.
-- **[Profiling remotely on Modal](profiling_session/)** — Run profiling sessions on remote compute infrastructure
+- **[vLLM Profiling Example](vllm_example/)** — Profile vLLM using .pth-based auto-initialization with NCU, Nsys, and Torch profilers
+- **[Running remotely on Modal](modal_example/)** — Run profiling sessions on Modal cloud infrastructure
 
 > 💡 **Tip**: Each example includes a detailed README with step-by-step instructions and explanations.
 
-## 🎥 Tutorial Videos
+## Unified Docker Environment
+
+All examples share a **[unified Docker setup](docker/)** that includes all profiling tools:
+
+| Tool | Version |
+|------|---------|
+| CUDA | 13.0.0 (configurable) |
+| Python | 3.10 |
+| Nsight Systems (nsys) | 2025.2.1 |
+| Nsight Compute (ncu) | Matches CUDA version |
+| PyTorch | 2.0+ |
+
+### Building the Docker Image
+
+```bash
+cd docker/
+docker compose build
+
+# Or build with a specific CUDA version
+docker compose build --build-arg CUDA_VERSION=12.9.1
+```
+
+### Running an Example with Docker
+
+```bash
+cd vllm_example/
+python nc_pkg.py --build
+python nc_pkg.py --run --ncompass-dir /path/to/ncompass
+```
+
+See [docker/README.md](docker/README.md) for detailed Docker documentation.
+
+## Tutorial Videos
 
 Learn how to use nCompass with our video tutorials:
 
@@ -26,18 +57,17 @@ Learn how to use nCompass with our video tutorials:
 - **[Feature Tutorial - Automatic TorchRecord Context Injection](https://www.loom.com/share/2604f25cc97e468db0e209e7ef5f8949)** — See how zero-instrumentation profiling works
 - **[Feature Tutorial - Running remotely on Modal](https://www.loom.com/share/6c5f9fc56600452b84dd0739e8f251f9)** — How to integrate with Modal and run profiling remotely
 
-## ⚙️ Running Examples
+## Running Examples
 
 ### Prerequisites
 
 Before running any example, ensure you have:
 
-1. ✅ Installed the [VSCode extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode)
-2. ✅ The `ncprof` backend running
-3. ✅ Python 3.10+ installed
-4. ✅ `Pydantic>=2.0` installed
+1. Docker installed (recommended) OR local installation of profiling tools
+2. NVIDIA GPU with appropriate drivers
+3. [VSCode extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode) (for marker injection)
 
-Each example includes its own README with specific setup instructions and requirements. Navigate to the example directory and follow the instructions there.
+Each example includes its own README with specific setup instructions.
 
 ## 💬 Support
 

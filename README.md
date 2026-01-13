@@ -45,12 +45,15 @@ pip install ncompass
 
 ## Examples
 
-Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass/tree/main/examples) for examples. Our examples are built to work together with the VSCode extension. For instance, with adding tracepoints to the code, you can add/remove tracepoints using the extension and then run profiling using our examples. 
+Refer to our [open source GitHub repo](https://github.com/nCompass-tech/ncompass/tree/main/examples) for examples. Our examples are built to work together with the VSCode extension. For instance, with adding tracepoints to the code, you can add/remove tracepoints using the extension and then run profiling using our examples.
 
-- **[Basic TorchProfile Example](examples/basic_example/)**
-- **[Nsight Systems Examples](examples/nsys_example/)**
-- **[Running remotely on Modal](examples/modal_example/)**
-- **[Fast conversion of .nsys-rep to .json.gz](examples/trace_converter/)**
+- **[Basic TorchProfile Example](examples/basic_example/)** — Get started with PyTorch profiling using automatic tracepoint injection
+- **[Nsight Systems Example](examples/nsys_example/)** — Profile GPU kernels with Nsight Systems and convert traces to Chrome format
+- **[Nsight Compute Example](examples/ncu_example/)** — Collect detailed kernel-level GPU metrics with CSV reports
+- **[vLLM Profiling Example](examples/vllm_example/)** — Profile vLLM using .pth-based auto-initialization
+- **[ProfilingSession Example](examples/profiling_session/)** — Iterative profiling workflow with AI-powered trace analysis
+- **[Running remotely on Modal](examples/modal_example/)** — Run profiling sessions on Modal cloud infrastructure
+- **[Trace Converter](examples/trace_converter/)** — Benchmark .nsys-rep to .json.gz conversion
 
 ## Online Resources
 

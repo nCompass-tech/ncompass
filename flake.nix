@@ -10,6 +10,7 @@
           ]);
 
       system_pkgs = pkgs : (with pkgs; [
+          wget
           git-lfs
           pyright
           plantuml
