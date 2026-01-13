@@ -1,0 +1,8 @@
+# Development and profiling dependencies for nCompass examples
+nvtx>=0.2.14
+numpy>=2.2.0
+perfetto
+ninja
+setuptools
+wheel
+pyyaml

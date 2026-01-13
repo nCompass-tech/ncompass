@@ -5,3 +5,6 @@ env_config.yaml
 *.json
 *.json.gz
 *.txt
+
+# Cloned vLLM source (auto-downloaded based on wheel version)
+vllm_src/
