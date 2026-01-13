@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Try to import tomllib (Python 3.11+) or fallback to tomli
+# Try to import tomllib (Python 3.10+) or fallback to tomli
 try:
     import tomllib
 except ImportError:
