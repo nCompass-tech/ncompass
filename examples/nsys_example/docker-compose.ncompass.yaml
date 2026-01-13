@@ -1,6 +1,0 @@
-services:
-  nsys_example:
-    command: 
-      - /bin/bash
-      - -c
-      - "uv pip uninstall ncompass && sleep infinity"

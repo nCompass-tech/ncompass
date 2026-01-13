@@ -90,7 +90,7 @@ def validate_environment() -> tuple[bool, Optional[Path]]:
             "ncu command not found. Please ensure NVIDIA Nsight Compute is installed "
             "and available in your PATH."
         )
-        logger.error("Install with: apt-get install cuda-nsight-compute-<version>")
+        logger.error("Download from: https://developer.nvidia.com/nsight-compute")
         return False, None
 
     script_dir = Path(__file__).parent.absolute()

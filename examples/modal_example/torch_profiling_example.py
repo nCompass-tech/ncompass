@@ -29,7 +29,7 @@ app = modal.App("example-torch-profiling")
 # We copy the local config.json which is where the nCompass VSCode extension tracks added
 # tracepoints, i.e. regions you want to profile. Copying this across allows the SDK to 
 # inject trace markers for profiling 
-image = modal.Image.debian_slim(python_version="3.11")\
+image = modal.Image.debian_slim(python_version="3.10")\
     .uv_pip_install("torch")\
     .uv_pip_install("ncompass>=0.1.9")\
     .uv_pip_install("pathlib")

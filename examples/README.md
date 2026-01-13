@@ -34,7 +34,7 @@ Before running any example, ensure you have:
 
 1. ✅ Installed the [VSCode extension](https://marketplace.visualstudio.com/items?itemName=nCompassTech.ncprof-vscode)
 2. ✅ The `ncprof` backend running
-3. ✅ Python 3.11+ installed
+3. ✅ Python 3.10+ installed
 4. ✅ `Pydantic>=2.0` installed
 
 Each example includes its own README with specific setup instructions and requirements. Navigate to the example directory and follow the instructions there.
