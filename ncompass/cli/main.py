@@ -38,22 +38,19 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
     # Profile a Python script with nsys
-    ncompass profile -- python my_script.py
+    ncompass profile --nsys -- python my_script.py
 
-    # Profile with auto-conversion to Chrome trace
-    ncompass profile --convert -- python my_script.py --epochs 10
+    # Profile with nsys and auto-conversion to Chrome trace
+    ncompass profile --nsys --convert -- python my_script.py --epochs 10
+
+    # Profile with nsys and custom trace types
+    ncompass profile --nsys --trace=cuda,nvtx -- python my_script.py
 
     # Profile with NCU (NVIDIA Nsight Compute)
     ncompass profile --ncu -- python my_script.py
 
-    # Profile with NCU and NVTX filtering
-    ncompass profile --ncu --nvtx-include "ncu_profile/" -- python my_script.py
-
-    # Profile with NCU and kernel name filtering
-    ncompass profile --ncu --kernel-name "regex:.*gemm.*" -- python my_script.py
-
-    # Profile any executable
-    ncompass profile -c -- ./my_cuda_app --config config.yaml
+    # Profile any executable with nsys
+    ncompass profile --nsys -c -- ./my_cuda_app --config config.yaml
 
     # Convert an existing nsys report to Chrome trace
     ncompass convert my_profile.nsys-rep
@@ -112,10 +109,14 @@ def main(args: list[str] | None = None) -> int:
         user_command = []
 
     parser = create_parser()
-    parsed_args = parser.parse_args(nc_args)
 
-    # Attach user command for profile handler
+    # Use parse_known_args to allow unknown arguments to be passed through
+    # to the underlying profiler (nsys/ncu)
+    parsed_args, extra_args = parser.parse_known_args(nc_args)
+
+    # Attach user command and extra args for profile handler
     parsed_args.user_command = user_command
+    parsed_args.extra_args = extra_args
 
     if parsed_args.command is None:
         parser.print_help()

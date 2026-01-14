@@ -19,13 +19,44 @@ nCompass Profiling - Nsight Systems (nsys) integration.
 Provides functions for running nsys profiling on any command.
 """
 
-import os
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from ncompass.trace.infra.utils import logger
+
+
+@dataclass
+class NsysDefaults:
+    """Default nsys arguments for ncompass profiling."""
+
+    trace: str = "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla"
+    sample: str = "process-tree"
+    gpuctxsw: str = "true"
+    cuda_graph_trace: str = "node"
+    stop_on_exit: str = "true"
+    trace_fork_before_exec: str = "true"
+    force_overwrite: str = "true"
+    capture_range: str = "nvtx"
+    nvtx_capture: str = "ncompass_nsys_range"
+    capture_range_end: str = "repeat"
+
+    def to_dict(self) -> dict[str, str]:
+        """Convert to dictionary with nsys argument format (--key)."""
+        return {
+            "--trace": self.trace,
+            "--sample": self.sample,
+            "--gpuctxsw": self.gpuctxsw,
+            "--cuda-graph-trace": self.cuda_graph_trace,
+            "--stop-on-exit": self.stop_on_exit,
+            "--trace-fork-before-exec": self.trace_fork_before_exec,
+            "--force-overwrite": self.force_overwrite,
+            "--capture-range": self.capture_range,
+            "--nvtx-capture": self.nvtx_capture,
+            "--capture-range-end": self.capture_range_end,
+        }
 
 
 def check_nsys_available() -> bool:
@@ -60,101 +91,117 @@ def create_trace_directory(base_dir: Path) -> tuple[Path, str]:
     return trace_dir, timestamp
 
 
+def _parse_nsys_args(args: list[str]) -> dict[str, str]:
+    """Parse nsys arguments into a dictionary.
+
+    Handles both --key=value and --key value formats.
+
+    Args:
+        args: List of argument strings
+
+    Returns:
+        Dictionary mapping argument names to values
+    """
+    parsed: dict[str, str] = {}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--"):
+            if "=" in arg:
+                # --key=value format
+                key, value = arg.split("=", 1)
+                parsed[key] = value
+            elif i + 1 < len(args) and not args[i + 1].startswith("-"):
+                # --key value format
+                parsed[arg] = args[i + 1]
+                i += 1
+            else:
+                # Boolean flag (--key with no value)
+                parsed[arg] = "true"
+        i += 1
+    return parsed
+
+
+def _build_nsys_command(
+    output_path: Path,
+    extra_args: list[str],
+    command: list[str],
+) -> list[str]:
+    """Build the nsys profile command.
+
+    Starts with defaults, then applies extra_args (which can override defaults).
+
+    Args:
+        output_path: Path for output file (without extension)
+        extra_args: Additional nsys arguments (can override defaults)
+        command: The command to profile
+
+    Returns:
+        Complete nsys command as list of strings
+    """
+    # Start with defaults
+    args_dict = NsysDefaults().to_dict()
+
+    # Add output path
+    args_dict["--output"] = str(output_path)
+
+    # Parse and apply extra args (overrides defaults)
+    extra_parsed = _parse_nsys_args(extra_args)
+    args_dict.update(extra_parsed)
+
+    # Build command
+    cmd = ["nsys", "profile"]
+    for key, value in args_dict.items():
+        cmd.append(f"{key}={value}")
+
+    # Add the user command
+    cmd.extend(command)
+
+    return cmd
+
+
 def run_nsys_profile(
     command: list[str],
     output_name: str,
     trace_dir: Path,
-    working_dir: Optional[Path],
-    trace_types: str,
-    force_overwrite: bool,
-    sample: str,
-    session_name: str,
-    gpuctxsw: bool,
-    cuda_graph_trace: str,
-    cuda_memory_usage: bool,
-    with_range: bool,
-    python_tracing: bool,
-    use_sudo: bool,
-    cache_dir: Optional[str],
+    working_dir: Optional[Path] = None,
+    extra_args: Optional[list[str]] = None,
 ) -> Optional[Path]:
     """Run nsys profile on any command.
 
+    Uses ncompass defaults for nsys arguments. Any extra_args will be passed
+    through to nsys and can override the defaults.
+
+    Default nsys arguments:
+        --trace=cuda,nvtx,osrt,cudnn,cublas,opengl,cudla
+        --sample=process-tree
+        --gpuctxsw=true
+        --cuda-graph-trace=node
+        --stop-on-exit=true
+        --trace-fork-before-exec=true
+        --force-overwrite=true
+        --capture-range=nvtx
+        --nvtx-capture=ncompass_nsys_range
+        --capture-range-end=repeat
+
     Args:
-        command: Command and arguments to profile (e.g., ["python", "script.py", "--arg"]).
+        command: Command and arguments to profile (e.g., ["python", "script.py"]).
         output_name: Base name for output files.
         trace_dir: Directory to store trace output.
         working_dir: Working directory for the command (defaults to current directory).
-        trace_types: Comma-separated trace types (e.g., "cuda,nvtx,osrt").
-        force_overwrite: Whether to overwrite existing output files.
-        sample: Sampling mode (e.g., "process-tree").
-        session_name: Name for the profiling session.
-        gpuctxsw: Enable GPU context switch tracing.
-        cuda_graph_trace: CUDA graph trace mode ("node" or "graph").
-        cuda_memory_usage: Enable CUDA memory usage tracking.
-        with_range: Enable NVTX range capture mode.
-        python_tracing: Enable Python/PyTorch tracing.
-        use_sudo: Run nsys with sudo.
-        cache_dir: Directory for nCompass cache.
+        extra_args: Additional nsys arguments (can override defaults).
 
     Returns:
         Path to the generated .nsys-rep file, or None if profiling failed.
     """
     output_path = trace_dir / output_name
 
-    # Build the nsys profile command
-    cmd: list[str] = []
-    if use_sudo:
-        cmd.extend(["sudo", "-E"])
-
-    cmd.extend(
-        [
-            "nsys",
-            "profile",
-            f"--trace={trace_types}",
-            f"--output={output_path}",
-            f"--sample={sample}",
-            f"--session-new={session_name}",
-            f"--gpuctxsw={str(gpuctxsw).lower()}",
-            f"--cuda-graph-trace={cuda_graph_trace}",
-            "--show-output=true",
-            "--stop-on-exit=true",
-            "--gpu-metrics-devices=all",
-            f"--cuda-memory-usage={str(cuda_memory_usage).lower()}",
-            "--trace-fork-before-exec=true",
-        ]
+    # Build the nsys command
+    cmd = _build_nsys_command(
+        output_path=output_path,
+        extra_args=extra_args or [],
+        command=command,
     )
-
-    if force_overwrite:
-        cmd.append("--force-overwrite=true")
-
-    # NVTX range capture mode
-    if with_range:
-        cmd.extend(
-            [
-                "--capture-range=nvtx",
-                "--nvtx-capture=nc_start_capture",
-                "--env-var=NSYS_NVTX_PROFILER_REGISTER_ONLY=0",
-                "--capture-range-end=repeat",
-            ]
-        )
-
-    # Python/PyTorch tracing
-    if python_tracing:
-        cmd.extend(
-            [
-                "--cudabacktrace=kernel",
-                "--python-backtrace=cuda",
-                "--pytorch=functions-trace",
-                "--python-sampling=true",
-            ]
-        )
-
-    # Set environment variable for nCompass cache if specified
-    if cache_dir:
-        os.environ["NCOMPASS_CACHE_DIR"] = cache_dir
-
-    # Add the user command
-    cmd.extend(command)
 
     logger.info("Running nsys profile command:")
     logger.info(f"  {' '.join(cmd)}")
@@ -180,4 +227,3 @@ def run_nsys_profile(
     except subprocess.CalledProcessError as e:
         logger.error(f"nsys profile failed with return code {e.returncode}")
         return None
-
