@@ -16,7 +16,7 @@
 """
 nCompass CLI - Profile command.
 
-Runs nsys profiling on any command with nCompass instrumentation.
+Runs nsys or ncu profiling on any command with nCompass instrumentation.
 """
 
 import argparse
@@ -31,6 +31,7 @@ from ncompass.profile import (
     run_nsys_profile,
     run_ncu_profile,
 )
+from ncompass.profile.nsys import NsysDefaults 
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
 from ncompass.trace.infra.utils import logger
 
@@ -46,46 +47,53 @@ def add_profile_parser(
     Returns:
         The profile subparser
     """
+    # Format default nsys args for help text
+    defaults_help = "\n".join(f"        {k}={v}" for k, v in NsysDefaults().to_dict().items())
+
     parser = subparsers.add_parser(
         "profile",
-        help="Run nsys profiling on any command",
-        description="Profile any command using NVIDIA Nsight Systems with nCompass instrumentation.",
+        help="Run nsys or ncu profiling on any command",
+        description="Profile any command using NVIDIA Nsight Systems (nsys) or Nsight Compute (ncu).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Examples:
-    # Basic profiling of a Python script
-    ncompass profile -- python my_script.py
+    # Profile with nsys (default settings)
+    ncompass profile --nsys -- python my_script.py
 
-    # Profile with auto-conversion to Chrome trace
-    ncompass profile --convert -- python train.py --epochs 10
+    # Profile with nsys and auto-convert to Chrome trace
+    ncompass profile --nsys --convert -- python train.py
 
-    # Profile with NCU (NVIDIA Nsight Compute)
+    # Profile with nsys and custom trace types (overrides default)
+    ncompass profile --nsys --trace=cuda,nvtx -- python my_script.py
+
+    # Profile with nsys and additional arguments
+    ncompass profile --nsys --cuda-memory-usage=true -- python my_script.py
+
+    # Profile with ncu
     ncompass profile --ncu -- python my_script.py
 
-    # Profile with NCU and NVTX filtering
-    ncompass profile --ncu --nvtx-include "ncu_profile/" -- python my_script.py
+Default nsys arguments (can be overridden):
+{defaults_help}
 
-    # Profile with NCU and kernel name filtering
-    ncompass profile --ncu --kernel-name "regex:.*gemm.*" -- python my_script.py
-
-    # Profile with custom trace types
-    ncompass profile --trace-types cuda,nvtx -- python my_script.py
-
-    # Profile any executable (not just Python)
-    ncompass profile -c -- ./my_cuda_app --config config.yaml
-
-    # Profile a shell script
-    ncompass profile -- bash run_training.sh
-
-    # Enable NVTX range capture mode
-    ncompass profile --with-range -- python my_script.py
-
-    # Run with sudo (for full system profiling features)
-    ncompass profile --sudo -- mpirun -np 4 python distributed.py
-
-Note: All ncompass options must appear BEFORE the -- separator.
-      Everything after -- is the command to profile.
+Note:
+    - Either --nsys or --ncu is required
+    - All ncompass options must appear BEFORE the -- separator
+    - Everything after -- is the command to profile
+    - Any nsys/ncu arguments can be passed and will override defaults
         """,
+    )
+
+    # Profiler selection (mutually exclusive, one required)
+    profiler_group = parser.add_mutually_exclusive_group(required=True)
+    profiler_group.add_argument(
+        "--nsys",
+        action="store_true",
+        help="Profile with NVIDIA Nsight Systems (nsys)",
+    )
+    profiler_group.add_argument(
+        "--ncu",
+        action="store_true",
+        help="Profile with NVIDIA Nsight Compute (ncu)",
     )
 
     # Output options
@@ -102,101 +110,13 @@ Note: All ncompass options must appear BEFORE the -- separator.
         "-d",
         type=str,
         default=None,
-        help="Directory to store output files (default: .traces/<timestamp> in current directory)",
+        help="Directory to store output files (default: .nsys_traces/<timestamp>)",
     )
     output_group.add_argument(
         "--convert",
         "-c",
         action="store_true",
         help="Auto-convert nsys report to Chrome trace format (.json.gz)",
-    )
-
-    # Trace options
-    trace_group = parser.add_argument_group("Trace options")
-    trace_group.add_argument(
-        "--trace-types",
-        "-t",
-        type=str,
-        default="cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-        help="Comma-separated trace types (default: cuda,nvtx,osrt,cudnn,cublas,opengl,cudla)",
-    )
-    trace_group.add_argument(
-        "--no-nc-range",
-        action="store_true",
-        help="Disable profiling only within nc_start_capture NVTX range",
-    )
-    trace_group.add_argument(
-        "--python-tracing",
-        action="store_true",
-        help="Disable Python/PyTorch tracing (enabled by default)",
-    )
-    trace_group.add_argument(
-        "--cuda-graph-trace",
-        type=str,
-        default="node",
-        choices=["node", "graph"],
-        help="CUDA graph trace mode (default: node)",
-    )
-
-    # NCU options
-    ncu_group = parser.add_argument_group("NCU options")
-    ncu_group.add_argument(
-        "--ncu",
-        action="store_true",
-        help="Use NVIDIA Nsight Compute (ncu) instead of nsys for profiling",
-    )
-    ncu_group.add_argument(
-        "--nvtx-include",
-        type=str,
-        default="",
-        help="NVTX range filter for NCU profiling (e.g., 'ncu_profile/')",
-    )
-    ncu_group.add_argument(
-        "--kernel-name",
-        type=str,
-        default="",
-        help="Kernel name filter for NCU profiling (e.g., 'regex:.*gemm.*')",
-    )
-
-    # Advanced options
-    advanced_group = parser.add_argument_group("Advanced options")
-    advanced_group.add_argument(
-        "--sample",
-        type=str,
-        default="process-tree",
-        help="Sampling mode (default: process-tree)",
-    )
-    advanced_group.add_argument(
-        "--session-name",
-        type=str,
-        default="nc0",
-        help="Name for profiling session (default: nc0)",
-    )
-    advanced_group.add_argument(
-        "--no-force",
-        action="store_true",
-        help="Don't overwrite existing output files",
-    )
-    advanced_group.add_argument(
-        "--no-gpu-ctx-switch",
-        action="store_true",
-        help="Disable GPU context switch tracing",
-    )
-    advanced_group.add_argument(
-        "--no-cuda-memory-usage",
-        action="store_true",
-        help="Disable CUDA memory usage tracking",
-    )
-    advanced_group.add_argument(
-        "--cache-dir",
-        type=str,
-        default=None,
-        help="Directory for nCompass cache (default: .cache in current directory)",
-    )
-    advanced_group.add_argument(
-        "--no-sudo",
-        action="store_true",
-        help="Run nsys with sudo (enables full system profiling features)",
     )
 
     # Verbosity
@@ -228,9 +148,9 @@ def _configure_logging(args: argparse.Namespace) -> None:
         logger.setLevel(logging.INFO)
 
 
-def _check_profiler_availability(args: argparse.Namespace) -> bool:
+def _check_profiler_availability(use_ncu: bool) -> bool:
     """Check if the required profiler (nsys or ncu) is available."""
-    if args.ncu:
+    if use_ncu:
         if not check_ncu_available():
             logger.error(
                 "ncu command not found. Please ensure NVIDIA Nsight Compute is installed "
@@ -275,11 +195,11 @@ def _resolve_session_paths(
 
 
 def _execute_ncu_session(
-    args: argparse.Namespace,
     user_command: list[str],
     output_name: str,
     trace_dir: Path,
     working_dir: Path,
+    extra_args: list[str],
 ) -> int:
     """Execute an NCU profiling session."""
     logger.info("=" * 80)
@@ -288,21 +208,19 @@ def _execute_ncu_session(
     logger.info(f"  Command: {' '.join(user_command)}")
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
-    logger.info(f"  Profiler: NCU (NVIDIA Nsight Compute)")
-    if args.kernel_name:
-        logger.info(f"  Kernel filter: {args.kernel_name}")
-    if args.nvtx_include:
-        logger.info(f"  NVTX filter: {args.nvtx_include}")
+    if extra_args:
+        logger.info(f"  Extra args: {' '.join(extra_args)}")
     logger.info("=" * 80)
 
+    # TODO: Implement NCU with extra_args support
     try:
         _ = run_ncu_profile(
             command=user_command,
             output_name=output_name,
             trace_dir=trace_dir,
             working_dir=working_dir,
-            kernel_name=args.kernel_name,
-            nvtx_include=args.nvtx_include,
+            kernel_name="",
+            nvtx_include="",
         )
     except Exception as e:
         logger.error(f"NCU profiling failed: {e}")
@@ -317,19 +235,17 @@ def _execute_nsys_session(
     output_name: str,
     trace_dir: Path,
     working_dir: Path,
+    extra_args: list[str],
 ) -> int:
     """Execute an nsys profiling session."""
     logger.info("=" * 80)
-    logger.info("Starting ncompass profile session")
+    logger.info("Starting ncompass nsys profile session")
     logger.info("=" * 80)
     logger.info(f"  Command: {' '.join(user_command)}")
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
-    logger.info(f"  Profiler: nsys (NVIDIA Nsight Systems)")
-    logger.info(f"  Trace types: {args.trace_types}")
-    logger.info(f"  Python tracing: {args.python_tracing}")
-    logger.info(f"  Auto-convert: {args.convert}")
-    logger.info(f"  Using sudo: {not args.no_sudo}")
+    if extra_args:
+        logger.info(f"  Extra args: {' '.join(extra_args)}")
     logger.info("=" * 80)
 
     nsys_rep_file = run_nsys_profile(
@@ -337,17 +253,7 @@ def _execute_nsys_session(
         output_name=output_name,
         trace_dir=trace_dir,
         working_dir=working_dir,
-        trace_types=args.trace_types,
-        force_overwrite=not args.no_force,
-        sample=args.sample,
-        session_name=args.session_name,
-        gpuctxsw=not args.no_gpu_ctx_switch,
-        cuda_graph_trace=args.cuda_graph_trace,
-        cuda_memory_usage=not args.no_cuda_memory_usage,
-        with_range=not args.no_nc_range,
-        python_tracing=args.python_tracing,
-        use_sudo=not args.no_sudo,
-        cache_dir=args.cache_dir,
+        extra_args=extra_args,
     )
 
     if nsys_rep_file is None:
@@ -412,16 +318,17 @@ def run_profile_command(args: argparse.Namespace) -> int:
     """
     _configure_logging(args)
 
-    # Get user command from args (set by main.py after parsing)
+    # Get user command and extra args from args (set by main.py after parsing)
     user_command: list[str] = getattr(args, "user_command", [])
+    extra_args: list[str] = getattr(args, "extra_args", [])
 
     # Validate command is provided
     if not user_command:
-        logger.error("No command specified. Usage: ncompass profile [options] -- <command>")
+        logger.error("No command specified. Usage: ncompass profile --nsys|--ncu [options] -- <command>")
         return 1
 
     # Check profiler availability
-    if not _check_profiler_availability(args):
+    if not _check_profiler_availability(args.ncu):
         return 1
 
     # Determine paths and names
@@ -430,11 +337,9 @@ def run_profile_command(args: argparse.Namespace) -> int:
     # Run appropriate session
     if args.ncu:
         return _execute_ncu_session(
-            args, user_command, output_name, trace_dir, working_dir
+            user_command, output_name, trace_dir, working_dir, extra_args
         )
     else:
         return _execute_nsys_session(
-            args, user_command, output_name, trace_dir, working_dir
+            args, user_command, output_name, trace_dir, working_dir, extra_args
         )
-
-

@@ -3,28 +3,22 @@
 Nsight Compute (NCU) profiling example for PyTorch neural network inference.
 
 This example demonstrates how to:
-1. Profile PyTorch inference using NVIDIA Nsight Compute (ncu)
-2. Generate CSV profiling reports with kernel-level metrics
-3. Capture GPU time, memory bandwidth, and FP operation metrics
+1. Add NVTX markers via the nCompass VSCode extension (no code changes)
+2. Profile PyTorch inference using NVIDIA Nsight Compute (ncu)
+3. Generate CSV profiling reports with kernel-level metrics
 
-Usage:
-    # Basic profiling (generates CSV file)
-    python main.py
-
-    # Profile with custom parameters
-    python main.py --iters 30 --hidden-dim 4096 --output my_profile
-
-    # Profile with fp16 precision
-    python main.py --precision fp16
-
-    # Filter specific kernels
-    python main.py --kernel-name "regex:.*gemm.*"
+Prerequisites:
+    1. Add NVTX markers using the nCompass VSCode extension
+    2. Set environment variables:
+       - NCOMPASS_CACHE_DIR=<path to .cache dir created when adding NVTX markers>
+       - NCOMPASS_PROFILER_TYPE=NVTX
 """
 
 import argparse
 import logging
-import time
+import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -74,6 +68,26 @@ def build_simplenet_command(
         f"--output-dim={output_dim}",
         f"--precision={precision}",
     ]
+
+
+def setup_ncompass_path(ncompass_dir: str) -> None:
+    """
+    Add ncompass directory to PYTHONPATH environment variable.
+
+    Args:
+        ncompass_dir: Path to ncompass package directory
+    """
+    ncompass_path = Path(ncompass_dir).resolve()
+    if not ncompass_path.exists():
+        raise FileNotFoundError(f"ncompass directory not found: {ncompass_path}")
+
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    if current_pythonpath:
+        os.environ["PYTHONPATH"] = f"{ncompass_path}:{current_pythonpath}"
+    else:
+        os.environ["PYTHONPATH"] = str(ncompass_path)
+
+    logger.info(f"Added ncompass to PYTHONPATH: {ncompass_path}")
 
 
 def validate_environment() -> tuple[bool, Optional[Path]]:
@@ -230,7 +244,7 @@ def main(
             trace_dir=output_dir,
             working_dir=script_path.parent,
             kernel_name=kernel_name,
-            nvtx_include="",  # Includes all nvtx ranges
+            nvtx_include="regex:@user_annotated:.*/", # Includes all nvtx ranges
         )
         t2 = time.time()
         logger.info(f"Profiling time: {(t2 - t1):.1f} seconds")
@@ -254,7 +268,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic profiling
+  # Basic profiling 
   python main.py
 
   # Profile with custom parameters

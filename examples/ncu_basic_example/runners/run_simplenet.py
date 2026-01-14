@@ -27,35 +27,6 @@ from ncompass.trace.core.pydantic import RewriteConfig
 logger.setLevel(logging.DEBUG)
 
 
-def load_ncompass_rewrites(config_path: Optional[Path] = None) -> bool:
-    """
-    Load nCompass rewrites from config file.
-    
-    Args:
-        config_path: Path to nCompass rewrite config (default: config.json in script directory)
-    
-    Returns:
-        True if rewrites were enabled, False otherwise
-    """
-    if config_path is None:
-        config_path = script_dir / "config.json"
-    
-    if config_path.exists():
-        logger.info(f"Loading nCompass rewrites from: {config_path}")
-        try:
-            with config_path.open("r") as f:
-                cfg = json.load(f)
-                enable_rewrites(config=RewriteConfig.from_dict(cfg))
-            logger.info("nCompass rewrites enabled successfully")
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to enable rewrites: {e}")
-            return False
-    else:
-        logger.info(f"No nCompass rewrite config found at: {config_path}")
-        return False
-
-
 def run_inference() -> None:
     """
     Run simplenet inference.
@@ -76,11 +47,6 @@ def main():
     
     config_path = Path(args.config) if args.config else None
     
-    # Step 1: Load nCompass rewrites BEFORE importing simplenet
-    load_ncompass_rewrites(config_path=config_path)
-    
-    # Step 2: Run inference (imports simplenet after rewrites are active)
-    # The unknown args are already in sys.argv, so simplenet.main() will see them
     run_inference()
     
     return 0

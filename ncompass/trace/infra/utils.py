@@ -18,7 +18,30 @@ Description: Utils for AST rewriting.
 
 from typing import Union, Any
 from copy import deepcopy
+from dataclasses import dataclass
 import logging
+import os
+
+
+@dataclass(frozen=True)
+class LogLevelMap:
+    """Mapping of log level names to logging constants."""
+    DEBUG: int = logging.DEBUG
+    INFO: int = logging.INFO
+    WARNING: int = logging.WARNING
+    WARN: int = logging.WARNING
+    ERROR: int = logging.ERROR
+    CRITICAL: int = logging.CRITICAL
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "DEBUG": self.DEBUG,
+            "INFO": self.INFO,
+            "WARNING": self.WARNING,
+            "WARN": self.WARN,
+            "ERROR": self.ERROR,
+            "CRITICAL": self.CRITICAL,
+        }
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -32,7 +55,11 @@ for h in logger.handlers[:]:
     logger.removeHandler(h)
 logger.addHandler(handler)
 
-logger.info(f"NC Logger initialized")
+# Set logging level from environment variable (default: INFO)
+_log_level = os.environ.get("NC_LOG_LEVEL", "INFO").upper()
+logger.setLevel(LogLevelMap().to_dict().get(_log_level, logging.INFO))
+
+logger.info("NC Logger initialized")
 
 def tag(info: Union[str, list[str]]) -> str:
     """Produce a formatted tag to annotate the trace."""
