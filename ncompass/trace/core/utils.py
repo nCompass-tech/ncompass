@@ -33,30 +33,30 @@ if TYPE_CHECKING:
 
 def filepath_to_canonical_module_name(filepath: str) -> Optional[str]:
     """Convert a file path to its canonical module name using sys.path.
-    
+
     This function finds the most specific sys.path entry that contains the file
     and derives the module name from the relative path. This ensures that modules
     are identified by their canonical import name rather than a path-derived name.
-    
+
     For example:
         - If sys.path contains '/path/to/vllm_src'
         - And filepath is '/path/to/vllm_src/vllm/v1/worker/gpu_model_runner.py'
         - Returns 'vllm.v1.worker.gpu_model_runner'
-    
+
     Args:
         filepath: Absolute or relative path to a Python file
-        
+
     Returns:
         Canonical module name, or None if file is not under any sys.path entry
     """
     filepath = os.path.normpath(os.path.abspath(filepath))
-    
+
     # Remove .py extension
     if filepath.endswith('.py'):
         module_path = filepath[:-3]
     else:
         module_path = filepath
-    
+
     # Sort sys.path entries by length (longest first) to find most specific match
     # This ensures /path/to/vllm_src matches before /path/to
     sorted_paths = sorted(
@@ -64,7 +64,7 @@ def filepath_to_canonical_module_name(filepath: str) -> Optional[str]:
         key=len,
         reverse=True
     )
-    
+
     for path_entry in sorted_paths:
         if module_path.startswith(path_entry + os.sep):
             # Found a matching sys.path entry
@@ -75,8 +75,77 @@ def filepath_to_canonical_module_name(filepath: str) -> Optional[str]:
             if module_name.endswith('.__init__'):
                 module_name = module_name[:-9]
             return module_name
-    
+
     return None
+
+
+def find_package_root_and_add_to_syspath(filepath: str) -> Optional[str]:
+    """Find the package root for a file and add it to sys.path if needed.
+
+    Walks up from the file path looking for __init__.py files to find the package
+    boundary. The directory containing the top-level package (where __init__.py
+    stops appearing) is added to sys.path.
+
+    For example:
+        - filepath: '/path/to/project/vllm_src/vllm/v1/worker/gpu_model_runner.py'
+        - Walks up and finds __init__.py in: vllm/v1/worker/, vllm/v1/, vllm/
+        - No __init__.py in vllm_src/ (or it's the package root boundary)
+        - Adds '/path/to/project/vllm_src' to sys.path
+        - Returns 'vllm.v1.worker.gpu_model_runner'
+
+    Args:
+        filepath: Path to a Python file
+
+    Returns:
+        The canonical module name if successful, None otherwise
+    """
+    filepath = os.path.normpath(os.path.abspath(filepath))
+
+    if not os.path.exists(filepath):
+        logger.debug(f"File does not exist: {filepath}")
+        return None
+
+    # Start from the file's directory
+    current_dir = os.path.dirname(filepath)
+    package_parts = []
+
+    # Get the module name from the file (without .py)
+    filename = os.path.basename(filepath)
+    if filename.endswith('.py'):
+        module_file = filename[:-3]
+    else:
+        module_file = filename
+
+    # Walk up looking for __init__.py files to find package boundary
+    while current_dir and current_dir != os.path.dirname(current_dir):  # Stop at filesystem root
+        init_file = os.path.join(current_dir, "__init__.py")
+
+        if os.path.exists(init_file):
+            # This directory is part of a package
+            package_parts.insert(0, os.path.basename(current_dir))
+            current_dir = os.path.dirname(current_dir)
+        else:
+            # Found the boundary - current_dir should be in sys.path
+            break
+
+    if not package_parts:
+        # Not inside a package structure
+        logger.debug(f"No package structure found for: {filepath}")
+        return None
+
+    # Add to sys.path if not already there
+    if current_dir and current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+        logger.info(f"Added '{current_dir}' to sys.path for package resolution")
+
+    # Build the canonical module name
+    if module_file == '__init__':
+        module_name = '.'.join(package_parts)
+    else:
+        module_name = '.'.join(package_parts + [module_file])
+
+    logger.debug(f"Resolved package root: {current_dir}, module name: {module_name}")
+    return module_name
 
 
 def extract_source_code(target_module: str) -> Optional[str]:
