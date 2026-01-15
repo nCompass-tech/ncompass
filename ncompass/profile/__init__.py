@@ -22,6 +22,8 @@ from ncompass.profile.nsys import (
 from ncompass.profile.ncu import (
     check_ncu_available,
     run_ncu_profile,
+    convert_ncu_to_csv,
+    NcuDefaults,
 )
 
 __all__ = [
@@ -30,5 +32,7 @@ __all__ = [
     "run_nsys_profile",
     "check_ncu_available",
     "run_ncu_profile",
+    "convert_ncu_to_csv",
+    "NcuDefaults",
 ]
 
