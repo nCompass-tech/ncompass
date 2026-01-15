@@ -30,6 +30,7 @@ from ncompass.profile import (
     create_trace_directory,
     run_nsys_profile,
     run_ncu_profile,
+    convert_ncu_to_csv,
 )
 from ncompass.profile.nsys import NsysDefaults 
 from ncompass.trace.converters import convert_nsys_report, ConversionOptions
@@ -212,19 +213,35 @@ def _execute_ncu_session(
         logger.info(f"  Extra args: {' '.join(extra_args)}")
     logger.info("=" * 80)
 
-    # TODO: Implement NCU with extra_args support
-    try:
-        _ = run_ncu_profile(
-            command=user_command,
-            output_name=output_name,
-            trace_dir=trace_dir,
-            working_dir=working_dir,
-            kernel_name="",
-            nvtx_include="",
-        )
-    except Exception as e:
-        logger.error(f"NCU profiling failed: {e}")
+    ncu_rep_file = run_ncu_profile(
+        command=user_command,
+        output_name=output_name,
+        trace_dir=trace_dir,
+        working_dir=working_dir,
+        extra_args=extra_args,
+    )
+
+    if ncu_rep_file is None:
+        logger.error("Profiling failed!")
         return 1
+
+    # Convert to CSV
+    logger.info("-" * 80)
+    logger.info("Converting NCU report to CSV...")
+    try:
+        csv_file = trace_dir / f"{output_name}.csv"
+        convert_ncu_to_csv(ncu_rep_file, csv_file)
+    except Exception as e:
+        logger.warning(f"CSV conversion failed: {e}")
+        csv_file = None
+
+    # Log summary
+    logger.info("=" * 80)
+    logger.info("Session complete!")
+    logger.info(f"  ncu report: {ncu_rep_file}")
+    if csv_file:
+        logger.info(f"  CSV file: {csv_file}")
+    logger.info("=" * 80)
 
     return 0
 
