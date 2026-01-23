@@ -154,7 +154,6 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
         """Test successful profiling returns path to nsys-rep file."""
         mock_run.return_value = MagicMock(returncode=0)
         
-        # Create the expected output file
         expected_output = self.trace_dir / "test_output.nsys-rep"
         expected_output.touch()
         
@@ -163,17 +162,6 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda,nvtx",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=True,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         self.assertEqual(result, expected_output)
@@ -191,44 +179,26 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda,nvtx,osrt",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=True,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         cmd = call_args[0][0]
         
-        # Verify command structure
         self.assertEqual(cmd[0], "nsys")
         self.assertEqual(cmd[1], "profile")
-        self.assertIn("--trace=cuda,nvtx,osrt", cmd)
-        self.assertIn("--sample=process-tree", cmd)
-        self.assertIn("--session-new=nc0", cmd)
         self.assertIn("--gpuctxsw=true", cmd)
         self.assertIn("--cuda-graph-trace=node", cmd)
-        self.assertIn("--cuda-memory-usage=true", cmd)
         self.assertIn("--force-overwrite=true", cmd)
-        self.assertIn("--show-output=true", cmd)
         self.assertIn("--stop-on-exit=true", cmd)
         
-        # Verify script and args are at the end
         self.assertIn(str(self.script_path), cmd)
         self.assertIn("--arg1", cmd)
         self.assertIn("value1", cmd)
 
     @patch("subprocess.run")
-    def test_run_nsys_profile_with_sudo(self, mock_run):
-        """Test sudo -E is prepended when use_sudo=True."""
+    def test_run_nsys_profile_with_extra_args(self, mock_run):
+        """Test extra_args can override defaults."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -239,27 +209,18 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=True,
-            use_sudo=True,
-            cache_dir=None,
+            extra_args=["--trace", "cuda,nvtx", "--sample", "none"],
         )
         
         cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], "sudo")
-        self.assertEqual(cmd[1], "-E")
-        self.assertEqual(cmd[2], "nsys")
+        self.assertEqual(cmd[0], "nsys")
+        self.assertEqual(cmd[1], "profile")
+        self.assertIn("--trace=cuda,nvtx", cmd)
+        self.assertIn("--sample=none", cmd)
 
     @patch("subprocess.run")
     def test_run_nsys_profile_with_range(self, mock_run):
-        """Test NVTX range capture options are added when with_range=True."""
+        """Test NVTX range capture options are included by default."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -270,27 +231,16 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=True,
-            python_tracing=True,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         cmd = mock_run.call_args[0][0]
         self.assertIn("--capture-range=nvtx", cmd)
-        self.assertIn("--nvtx-capture=nc_start_capture", cmd)
+        self.assertIn("--nvtx-capture=ncompass_nsys_range", cmd)
         self.assertIn("--capture-range-end=repeat", cmd)
 
     @patch("subprocess.run")
-    def test_run_nsys_profile_python_tracing(self, mock_run):
-        """Test Python/PyTorch tracing options are added when python_tracing=True."""
+    def test_run_nsys_profile_default_trace_types(self, mock_run):
+        """Test default trace types are included."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -301,28 +251,17 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=True,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         cmd = mock_run.call_args[0][0]
-        self.assertIn("--cudabacktrace=kernel", cmd)
-        self.assertIn("--python-backtrace=cuda", cmd)
-        self.assertIn("--pytorch=functions-trace", cmd)
-        self.assertIn("--python-sampling=true", cmd)
+        trace_arg = [arg for arg in cmd if arg.startswith("--trace=")]
+        self.assertEqual(len(trace_arg), 1)
+        self.assertIn("cuda", trace_arg[0])
+        self.assertIn("nvtx", trace_arg[0])
 
     @patch("subprocess.run")
-    def test_run_nsys_profile_no_python_tracing(self, mock_run):
-        """Test Python tracing options are not added when python_tracing=False."""
+    def test_run_nsys_profile_override_via_extra_args(self, mock_run):
+        """Test extra_args can add custom options."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -333,49 +272,26 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
+            extra_args=["--python-backtrace", "cuda", "--pytorch", "functions-trace"],
         )
         
         cmd = mock_run.call_args[0][0]
-        self.assertNotIn("--cudabacktrace=kernel", cmd)
-        self.assertNotIn("--python-backtrace=cuda", cmd)
-        self.assertNotIn("--pytorch=functions-trace", cmd)
+        self.assertIn("--python-backtrace=cuda", cmd)
+        self.assertIn("--pytorch=functions-trace", cmd)
 
     @patch("subprocess.run")
     def test_run_nsys_profile_force_overwrite(self, mock_run):
-        """Test force_overwrite flag is added correctly."""
+        """Test force_overwrite flag is included by default."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
         expected_output.touch()
         
-        # With force_overwrite=True
         run_nsys_profile(
             command=[str(self.script_path)],
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         cmd = mock_run.call_args[0][0]
@@ -383,7 +299,7 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_run_nsys_profile_no_force_overwrite(self, mock_run):
-        """Test force_overwrite flag is not added when False."""
+        """Test force_overwrite can be disabled via extra_args."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -394,53 +310,31 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=False,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
+            extra_args=["--force-overwrite", "false"],
         )
         
         cmd = mock_run.call_args[0][0]
-        self.assertNotIn("--force-overwrite=true", cmd)
+        self.assertIn("--force-overwrite=false", cmd)
 
-    @patch.dict(os.environ, {}, clear=False)
     @patch("subprocess.run")
-    def test_run_nsys_profile_cache_dir_env(self, mock_run):
-        """Test cache_dir sets NCOMPASS_CACHE_DIR environment variable."""
+    def test_run_nsys_profile_output_path(self, mock_run):
+        """Test output path is correctly set in command."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
         expected_output.touch()
-        
-        cache_dir = "/tmp/ncompass_cache"
         
         run_nsys_profile(
             command=[str(self.script_path)],
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=cache_dir,
         )
         
-        # Check that the environment variable was set
-        self.assertEqual(os.environ.get("NCOMPASS_CACHE_DIR"), cache_dir)
+        cmd = mock_run.call_args[0][0]
+        output_arg = [arg for arg in cmd if arg.startswith("--output=")]
+        self.assertEqual(len(output_arg), 1)
+        self.assertIn("test_output", output_arg[0])
 
 
 class TestRunNsysProfileNegative(unittest.TestCase):
@@ -469,17 +363,6 @@ class TestRunNsysProfileNegative(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         self.assertIsNone(result)
@@ -489,24 +372,11 @@ class TestRunNsysProfileNegative(unittest.TestCase):
         """Test returns None when output file is not created."""
         mock_run.return_value = MagicMock(returncode=0)
         
-        # Don't create the expected output file
-        
         result = run_nsys_profile(
             command=[str(self.script_path)],
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         self.assertIsNone(result)
@@ -541,27 +411,15 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         self.assertEqual(result, expected_output)
         cmd = mock_run.call_args[0][0]
-        # Script path should be at the end, no extra args
         self.assertEqual(cmd[-1], str(self.script_path))
 
     @patch("subprocess.run")
     def test_run_nsys_profile_gpuctxsw_false(self, mock_run):
-        """Test gpuctxsw=false is in command."""
+        """Test gpuctxsw can be overridden to false."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -572,25 +430,15 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=False,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
+            extra_args=["--gpuctxsw", "false"],
         )
         
         cmd = mock_run.call_args[0][0]
         self.assertIn("--gpuctxsw=false", cmd)
 
     @patch("subprocess.run")
-    def test_run_nsys_profile_cuda_memory_usage_false(self, mock_run):
-        """Test cuda-memory-usage=false is in command."""
+    def test_run_nsys_profile_default_sample(self, mock_run):
+        """Test default sample mode is included."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -601,21 +449,10 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=False,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         cmd = mock_run.call_args[0][0]
-        self.assertIn("--cuda-memory-usage=false", cmd)
+        self.assertIn("--sample=process-tree", cmd)
 
     @patch("subprocess.run")
     def test_run_nsys_profile_cwd_is_working_dir(self, mock_run):
@@ -630,17 +467,6 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         call_kwargs = mock_run.call_args[1]
@@ -659,17 +485,6 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="node",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
         )
         
         call_kwargs = mock_run.call_args[1]
@@ -677,7 +492,7 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_run_nsys_profile_cuda_graph_trace_graph_mode(self, mock_run):
-        """Test cuda_graph_trace='graph' is in command."""
+        """Test cuda_graph_trace can be overridden to 'graph'."""
         mock_run.return_value = MagicMock(returncode=0)
         
         expected_output = self.trace_dir / "test_output.nsys-rep"
@@ -688,17 +503,7 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
-            trace_types="cuda",
-            force_overwrite=True,
-            sample="process-tree",
-            session_name="nc0",
-            gpuctxsw=True,
-            cuda_graph_trace="graph",
-            cuda_memory_usage=True,
-            with_range=False,
-            python_tracing=False,
-            use_sudo=False,
-            cache_dir=None,
+            extra_args=["--cuda-graph-trace", "graph"],
         )
         
         cmd = mock_run.call_args[0][0]

@@ -51,8 +51,8 @@ class TestCreateParser(unittest.TestCase):
         """Test that parser has profile and convert subcommands."""
         parser = create_parser()
         
-        # Parse profile command (no positional args, user command comes after --)
-        args = parser.parse_args(["profile"])
+        # Parse profile command (needs --nsys or --ncu now)
+        args = parser.parse_args(["profile", "--nsys"])
         self.assertEqual(args.command, "profile")
         
         # Parse convert command (needs required 'input_file' arg)
@@ -62,7 +62,7 @@ class TestCreateParser(unittest.TestCase):
     def test_create_parser_profile_has_func(self):
         """Test that profile subcommand sets func attribute."""
         parser = create_parser()
-        args = parser.parse_args(["profile"])
+        args = parser.parse_args(["profile", "--nsys"])
         self.assertTrue(hasattr(args, "func"))
 
     def test_create_parser_convert_has_func(self):
@@ -86,7 +86,7 @@ class TestMainNoArgs(unittest.TestCase):
         # Use a fresh parser to capture help output
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = argparse.Namespace(command=None)
+            mock_parser.parse_known_args.return_value = (argparse.Namespace(command=None), [])
             mock_create_parser.return_value = mock_parser
             
             main([])
@@ -122,7 +122,7 @@ class TestMainCommandDispatch(unittest.TestCase):
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             result = main(["profile", "--", "python", "test.py"])
@@ -140,7 +140,7 @@ class TestMainCommandDispatch(unittest.TestCase):
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="convert", func=mock_run_convert)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             result = main(["convert", "test.nsys-rep"])
@@ -160,13 +160,13 @@ class TestMainSeparatorHandling(unittest.TestCase):
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             main(["profile", "--convert", "--", "python", "train.py", "--epochs", "10"])
             
             # Parser should only receive ncompass args (before --)
-            mock_parser.parse_args.assert_called_once_with(["profile", "--convert"])
+            mock_parser.parse_known_args.assert_called_once_with(["profile", "--convert"])
             # User command should be attached to args
             self.assertEqual(mock_args.user_command, ["python", "train.py", "--epochs", "10"])
 
@@ -178,7 +178,7 @@ class TestMainSeparatorHandling(unittest.TestCase):
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             main(["profile", "--convert"])
@@ -193,13 +193,13 @@ class TestMainSeparatorHandling(unittest.TestCase):
         with patch.object(_main_module, "create_parser") as mock_create_parser:
             mock_args = argparse.Namespace(command="profile", func=mock_run_profile)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             # --verbose after -- should go to user command, not be parsed as ncompass flag
             main(["profile", "--", "./app", "--verbose", "-c"])
             
-            mock_parser.parse_args.assert_called_once_with(["profile"])
+            mock_parser.parse_known_args.assert_called_once_with(["profile"])
             self.assertEqual(mock_args.user_command, ["./app", "--verbose", "-c"])
 
 
@@ -222,7 +222,7 @@ class TestMainNegativeCases(unittest.TestCase):
                 delattr(mock_args, "func")
             
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             result = main(["profile", "--", "python", "test.py"])
@@ -268,7 +268,7 @@ class TestMainCommandHandlerReturn(unittest.TestCase):
             mock_handler = MagicMock(return_value=42)
             mock_args = argparse.Namespace(command="test", func=mock_handler)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             result = main(["test"])
@@ -281,7 +281,7 @@ class TestMainCommandHandlerReturn(unittest.TestCase):
             mock_handler = MagicMock(return_value=1)
             mock_args = argparse.Namespace(command="test", func=mock_handler)
             mock_parser = MagicMock()
-            mock_parser.parse_args.return_value = mock_args
+            mock_parser.parse_known_args.return_value = (mock_args, [])
             mock_create_parser.return_value = mock_parser
             
             result = main(["test"])
