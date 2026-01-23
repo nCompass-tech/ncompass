@@ -40,14 +40,15 @@ class TestAddProfileParser(unittest.TestCase):
         """Test that add_profile_parser registers profile subcommand."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile"])
+        # profile command now needs --nsys or --ncu
+        args = self.parser.parse_args(["profile", "--nsys"])
         self.assertEqual(args.command, "profile")
 
     def test_add_profile_parser_sets_func(self):
         """Test that profile subcommand has func attribute."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile"])
+        args = self.parser.parse_args(["profile", "--nsys"])
         self.assertTrue(hasattr(args, "func"))
         self.assertEqual(args.func, run_profile_command)
 
@@ -55,115 +56,80 @@ class TestAddProfileParser(unittest.TestCase):
         """Test that profile subcommand works without positional args (command comes after --)."""
         add_profile_parser(self.subparsers)
         
-        # Should not raise - no positional args required now
-        args = self.parser.parse_args(["profile"])
+        args = self.parser.parse_args(["profile", "--nsys"])
         self.assertEqual(args.command, "profile")
 
     def test_add_profile_parser_default_values(self):
         """Test default values for optional arguments."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile"])
+        args = self.parser.parse_args(["profile", "--nsys"])
         
         self.assertIsNone(args.output)
         self.assertIsNone(args.output_dir)
         self.assertFalse(args.convert)
-        self.assertEqual(args.trace_types, "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla")
-        self.assertFalse(args.no_nc_range)
-        self.assertFalse(args.python_tracing)
-        self.assertEqual(args.cuda_graph_trace, "node")
-        self.assertFalse(args.ncu)
-        self.assertEqual(args.nvtx_include, "")
-        self.assertEqual(args.kernel_name, "")
-        self.assertEqual(args.sample, "process-tree")
-        self.assertEqual(args.session_name, "nc0")
-        self.assertFalse(args.no_force)
-        self.assertFalse(args.no_gpu_ctx_switch)
-        self.assertFalse(args.no_cuda_memory_usage)
-        self.assertIsNone(args.cache_dir)
-        self.assertFalse(args.no_sudo)
         self.assertFalse(args.verbose)
         self.assertFalse(args.quiet)
-
-    def test_add_profile_parser_ncu_flags(self):
-        """Test NCU-related flags are parsed correctly."""
-        add_profile_parser(self.subparsers)
-        
-        args = self.parser.parse_args([
-            "profile", "--ncu", "--nvtx-include", "ncu_profile/", "--kernel-name", "regex:.*gemm.*"
-        ])
-        self.assertTrue(args.ncu)
-        self.assertEqual(args.nvtx_include, "ncu_profile/")
-        self.assertEqual(args.kernel_name, "regex:.*gemm.*")
 
     def test_add_profile_parser_output_short_flag(self):
         """Test -o short flag for output."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile", "-o", "custom_name"])
+        args = self.parser.parse_args(["profile", "--nsys", "-o", "custom_name"])
         self.assertEqual(args.output, "custom_name")
 
     def test_add_profile_parser_output_dir_short_flag(self):
         """Test -d short flag for output-dir."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile", "-d", "/tmp/traces"])
+        args = self.parser.parse_args(["profile", "--nsys", "-d", "/tmp/traces"])
         self.assertEqual(args.output_dir, "/tmp/traces")
 
     def test_add_profile_parser_convert_short_flag(self):
         """Test -c short flag for convert."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile", "-c"])
+        args = self.parser.parse_args(["profile", "--nsys", "-c"])
         self.assertTrue(args.convert)
-
-    def test_add_profile_parser_trace_types_short_flag(self):
-        """Test -t short flag for trace-types."""
-        add_profile_parser(self.subparsers)
-        
-        args = self.parser.parse_args(["profile", "-t", "cuda,nvtx"])
-        self.assertEqual(args.trace_types, "cuda,nvtx")
 
     def test_add_profile_parser_verbose_short_flag(self):
         """Test -v short flag for verbose."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile", "-v"])
+        args = self.parser.parse_args(["profile", "--nsys", "-v"])
         self.assertTrue(args.verbose)
 
     def test_add_profile_parser_quiet_short_flag(self):
         """Test -q short flag for quiet."""
         add_profile_parser(self.subparsers)
         
-        args = self.parser.parse_args(["profile", "-q"])
+        args = self.parser.parse_args(["profile", "--nsys", "-q"])
         self.assertTrue(args.quiet)
 
-    def test_add_profile_parser_cuda_graph_trace_choices(self):
-        """Test cuda-graph-trace only accepts valid choices."""
+    def test_add_profile_parser_requires_nsys_or_ncu(self):
+        """Test that either --nsys or --ncu is required."""
         add_profile_parser(self.subparsers)
         
-        # Valid choices
-        args = self.parser.parse_args(["profile", "--cuda-graph-trace", "node"])
-        self.assertEqual(args.cuda_graph_trace, "node")
-        
-        args = self.parser.parse_args(["profile", "--cuda-graph-trace", "graph"])
-        self.assertEqual(args.cuda_graph_trace, "graph")
-        
-        # Invalid choice should fail
         with self.assertRaises(SystemExit):
-            self.parser.parse_args(["profile", "--cuda-graph-trace", "invalid"])
+            self.parser.parse_args(["profile"])
+
+    def test_add_profile_parser_mutually_exclusive_nsys_ncu(self):
+        """Test that --nsys and --ncu are mutually exclusive."""
+        add_profile_parser(self.subparsers)
+        
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["profile", "--nsys", "--ncu"])
 
     def test_add_profile_parser_multiple_options(self):
         """Test multiple profile options can be combined."""
         add_profile_parser(self.subparsers)
         
         args = self.parser.parse_args([
-            "profile", "-v", "--convert", "-o", "output", "-t", "cuda,nvtx"
+            "profile", "--nsys", "-v", "--convert", "-o", "output"
         ])
         self.assertTrue(args.verbose)
         self.assertTrue(args.convert)
         self.assertEqual(args.output, "output")
-        self.assertEqual(args.trace_types, "cuda,nvtx")
 
 
 class TestRunProfileCommandSuccess(unittest.TestCase):
@@ -182,23 +148,12 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
         """Create argparse.Namespace with default values."""
         defaults = {
             "user_command": ["python", "test_script.py"],
+            "extra_args": [],
+            "nsys": True,
+            "ncu": False,
             "output": None,
             "output_dir": None,
             "convert": False,
-            "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "no_nc_range": False,
-            "python_tracing": False,
-            "cuda_graph_trace": "node",
-            "ncu": False,
-            "nvtx_include": "",
-            "kernel_name": "",
-            "sample": "process-tree",
-            "session_name": "nc0",
-            "no_force": False,
-            "no_gpu_ctx_switch": False,
-            "no_cuda_memory_usage": False,
-            "cache_dir": None,
-            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
@@ -207,26 +162,26 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
 
     @patch("ncompass.cli.profile.run_ncu_profile")
     @patch("ncompass.cli.profile.check_ncu_available")
+    @patch("ncompass.cli.profile.convert_ncu_to_csv")
     @patch("ncompass.cli.profile.create_trace_directory")
     def test_run_profile_command_ncu_success(
-        self, mock_create_dir, mock_check_ncu, mock_run_ncu
+        self, mock_create_dir, mock_convert_ncu, mock_check_ncu, mock_run_ncu
     ):
         """Test successful NCU profiling returns 0."""
         mock_check_ncu.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
-        output_csv = Path(self.temp_dir) / "output.csv"
-        output_csv.touch()
-        mock_run_ncu.return_value = output_csv
+        output_rep = Path(self.temp_dir) / "output.ncu-rep"
+        output_rep.touch()
+        mock_run_ncu.return_value = output_rep
         
-        args = self._create_args(ncu=True, nvtx_include="range/", kernel_name="gemm")
+        args = self._create_args(ncu=True, nsys=False, extra_args=["--nvtx-include", "range/"])
         
         result = run_profile_command(args)
         
         self.assertEqual(result, 0)
         mock_run_ncu.assert_called_once()
         call_kwargs = mock_run_ncu.call_args[1]
-        self.assertEqual(call_kwargs["nvtx_include"], "range/")
-        self.assertEqual(call_kwargs["kernel_name"], "gemm")
+        self.assertEqual(call_kwargs["extra_args"], ["--nvtx-include", "range/"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -315,19 +270,19 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_trace_types(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test custom trace types are passed correctly."""
+        """Test custom trace types are passed correctly via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(trace_types="cuda,nvtx")
+        args = self._create_args(extra_args=["--trace=cuda,nvtx"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertEqual(call_kwargs["trace_types"], "cuda,nvtx")
+        self.assertEqual(call_kwargs["extra_args"], ["--trace=cuda,nvtx"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -335,20 +290,19 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_with_range(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test range capture is enabled when --no-nc-range is not passed."""
+        """Test range capture is enabled by default via defaults, or customized via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        # no_nc_range=False (default) means with_range=True
-        args = self._create_args(no_nc_range=False)
+        args = self._create_args(extra_args=["--capture-range=nvtx"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertTrue(call_kwargs["with_range"])
+        self.assertEqual(call_kwargs["extra_args"], ["--capture-range=nvtx"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -356,20 +310,19 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_no_python_tracing(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --python-tracing flag controls Python tracing."""
+        """Test python tracing can be disabled via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        # python_tracing=False means Python tracing is disabled
-        args = self._create_args(python_tracing=False)
+        args = self._create_args(extra_args=["--python-sampling=false"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertFalse(call_kwargs["python_tracing"])
+        self.assertEqual(call_kwargs["extra_args"], ["--python-sampling=false"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -377,19 +330,19 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_cuda_graph_trace(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --cuda-graph-trace mode is passed correctly."""
+        """Test --cuda-graph-trace mode is passed correctly via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(cuda_graph_trace="graph")
+        args = self._create_args(extra_args=["--cuda-graph-trace=graph"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertEqual(call_kwargs["cuda_graph_trace"], "graph")
+        self.assertEqual(call_kwargs["extra_args"], ["--cuda-graph-trace=graph"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -397,20 +350,19 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def test_run_profile_command_sudo(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --no-sudo flag controls sudo usage."""
+        """Test sudo usage can be controlled via extra_args (if implemented there)."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        # no_sudo=False means use_sudo=True
-        args = self._create_args(no_sudo=False)
+        args = self._create_args(extra_args=["--sudo"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertTrue(call_kwargs["use_sudo"])
+        self.assertEqual(call_kwargs["extra_args"], ["--sudo"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -449,23 +401,12 @@ class TestRunProfileCommandNegative(unittest.TestCase):
         """Create argparse.Namespace with default values."""
         defaults = {
             "user_command": ["python", "test.py"],
+            "extra_args": [],
+            "nsys": True,
+            "ncu": False,
             "output": None,
             "output_dir": None,
             "convert": False,
-            "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "no_nc_range": False,
-            "python_tracing": False,
-            "cuda_graph_trace": "node",
-            "ncu": False,
-            "nvtx_include": "",
-            "kernel_name": "",
-            "sample": "process-tree",
-            "session_name": "nc0",
-            "no_force": False,
-            "no_gpu_ctx_switch": False,
-            "no_cuda_memory_usage": False,
-            "cache_dir": None,
-            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
@@ -496,7 +437,7 @@ class TestRunProfileCommandNegative(unittest.TestCase):
         """Test that missing ncu returns 1."""
         mock_check_ncu.return_value = False
         
-        args = self._create_args(ncu=True)
+        args = self._create_args(ncu=True, nsys=False)
         
         result = run_profile_command(args)
         
@@ -511,9 +452,9 @@ class TestRunProfileCommandNegative(unittest.TestCase):
         """Test that NCU profiling failure returns 1."""
         mock_check_ncu.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
-        mock_run_ncu.side_effect = Exception("NCU failed")
+        mock_run_ncu.return_value = None  # Indicates failure
         
-        args = self._create_args(ncu=True)
+        args = self._create_args(ncu=True, nsys=False)
         
         result = run_profile_command(args)
         
@@ -577,23 +518,12 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
         """Create argparse.Namespace with default values."""
         defaults = {
             "user_command": ["python", "test_script.py"],
+            "extra_args": [],
+            "nsys": True,
+            "ncu": False,
             "output": None,
             "output_dir": None,
             "convert": False,
-            "trace_types": "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla",
-            "no_nc_range": False,
-            "python_tracing": False,
-            "cuda_graph_trace": "node",
-            "ncu": False,
-            "nvtx_include": "",
-            "kernel_name": "",
-            "sample": "process-tree",
-            "session_name": "nc0",
-            "no_force": False,
-            "no_gpu_ctx_switch": False,
-            "no_cuda_memory_usage": False,
-            "cache_dir": None,
-            "no_sudo": False,
             "verbose": False,
             "quiet": False,
         }
@@ -646,19 +576,19 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
     def test_run_profile_command_no_force(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --no-force flag is passed correctly."""
+        """Test --no-force flag can be passed via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(no_force=True)
+        args = self._create_args(extra_args=["--force-overwrite=false"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertFalse(call_kwargs["force_overwrite"])
+        self.assertEqual(call_kwargs["extra_args"], ["--force-overwrite=false"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -666,20 +596,20 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
     def test_run_profile_command_cache_dir(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --cache-dir is passed correctly."""
+        """Test cache dir can be set (handled via environment or extra_args in real usage)."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        cache_dir = str(Path(self.temp_dir) / "cache")
-        args = self._create_args(cache_dir=cache_dir)
+        # In the new CLI, cache_dir would be an extra arg or environment variable
+        args = self._create_args(extra_args=["--cache-dir=/tmp/cache"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertEqual(call_kwargs["cache_dir"], cache_dir)
+        self.assertEqual(call_kwargs["extra_args"], ["--cache-dir=/tmp/cache"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -687,19 +617,19 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
     def test_run_profile_command_no_gpu_ctx_switch(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --no-gpu-ctx-switch flag is passed correctly."""
+        """Test --gpuctxsw flag can be passed via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(no_gpu_ctx_switch=True)
+        args = self._create_args(extra_args=["--gpuctxsw=false"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertFalse(call_kwargs["gpuctxsw"])
+        self.assertEqual(call_kwargs["extra_args"], ["--gpuctxsw=false"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -707,19 +637,19 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
     def test_run_profile_command_no_cuda_memory_usage(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test --no-cuda-memory-usage flag is passed correctly."""
+        """Test --cuda-memory-usage flag can be passed via extra_args."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
         
-        args = self._create_args(no_cuda_memory_usage=True)
+        args = self._create_args(extra_args=["--cuda-memory-usage=false"])
         
         run_profile_command(args)
         
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertFalse(call_kwargs["cuda_memory_usage"])
+        self.assertEqual(call_kwargs["extra_args"], ["--cuda-memory-usage=false"])
 
 
 if __name__ == "__main__":

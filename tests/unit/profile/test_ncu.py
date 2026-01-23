@@ -28,10 +28,12 @@ from ncompass.profile.ncu import (
     check_ncu_available,
     query_ncu_metrics,
     filter_available_metrics,
-    build_ncu_command,
-    run_ncu_and_parse_output,
+    _build_ncu_command,
+    convert_ncu_to_csv,
     get_metrics_str,
     run_ncu_profile,
+    _parse_ncu_args,
+    NcuDefaults,
 )
 
 
@@ -114,47 +116,48 @@ class TestFilterAvailableMetrics(unittest.TestCase):
 
 
 class TestBuildNcuCommand(unittest.TestCase):
-    """Test cases for build_ncu_command function."""
+    """Test cases for _build_ncu_command function."""
 
     def test_build_ncu_command_basic(self):
         """Test building basic NCU command."""
-        cmd = build_ncu_command(
-            ncu_bin="ncu",
-            kernel_name="my_kernel",
-            nvtx_include="my_range",
+        output_path = Path("/tmp/test_out")
+        cmd = _build_ncu_command(
+            output_path=output_path,
             metrics_str="metric1,metric2",
+            extra_args=[],
             command=["python", "script.py"]
         )
         
-        expected = [
-            "ncu",
-            "--kernel-name", "my_kernel",
-            "--target-processes", "all",
-            "--nvtx",
-            "--nvtx-include", "my_range",
-            "--metrics", "metric1,metric2",
-            "--csv",
-            "--force-overwrite",
-            "python", "script.py"
-        ]
-        self.assertEqual(cmd, expected)
+        # Check basic structure
+        self.assertEqual(cmd[0], "ncu")
+        self.assertIn("--nvtx", cmd)
+        self.assertIn("--force-overwrite", cmd)
+        
+        # Check key=value pairs
+        self.assertIn(f"--export={output_path}", cmd)
+        self.assertIn("--metrics=metric1,metric2", cmd)
+        self.assertIn("--target-processes=all", cmd)
+        
+        # Check command at the end
+        self.assertEqual(cmd[-2:], ["python", "script.py"])
 
-    def test_build_ncu_command_no_nvtx(self):
-        """Test building NCU command without nvtx filter."""
-        cmd = build_ncu_command(
-            ncu_bin="ncu",
-            kernel_name="",
-            nvtx_include="",
+    def test_build_ncu_command_with_extra_args(self):
+        """Test building NCU command with extra args overriding defaults."""
+        output_path = Path("/tmp/test_out")
+        cmd = _build_ncu_command(
+            output_path=output_path,
             metrics_str="metric1",
+            extra_args=["--target-processes", "none", "--replay-mode=kernel"],
             command=["./app"]
         )
         
-        self.assertNotIn("--nvtx-include", cmd)
-        self.assertEqual(cmd[2], "") # kernel_name is empty
+        self.assertIn("--target-processes=none", cmd)
+        self.assertIn("--replay-mode=kernel", cmd)
+        self.assertNotIn("--target-processes=all", cmd)
 
 
-class TestRunNcuAndParseOutput(unittest.TestCase):
-    """Test cases for run_ncu_and_parse_output function."""
+class TestConvertNcuToCsv(unittest.TestCase):
+    """Test cases for convert_ncu_to_csv function."""
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -164,15 +167,16 @@ class TestRunNcuAndParseOutput(unittest.TestCase):
         self.temp_dir.cleanup()
 
     @patch("subprocess.run")
-    def test_run_ncu_and_parse_output_success(self, mock_run):
-        """Test successful run and parsing of CSV."""
+    def test_convert_ncu_to_csv_success(self, mock_run):
+        """Test successful conversion of .ncu-rep to CSV."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout='Some random text\n"ID","Process ID","Other"\n"1","123","val"'
         )
+        ncu_rep = self.working_dir / "test.ncu-rep"
         output_csv = self.working_dir / "output.csv"
         
-        run_ncu_and_parse_output(["ncu", "args"], self.working_dir, output_csv)
+        convert_ncu_to_csv(ncu_rep, output_csv)
         
         self.assertTrue(output_csv.exists())
         content = output_csv.read_text()
@@ -180,17 +184,44 @@ class TestRunNcuAndParseOutput(unittest.TestCase):
         self.assertNotIn('Some random text', content)
 
     @patch("subprocess.run")
-    def test_run_ncu_and_parse_output_no_csv(self, mock_run):
-        """Test failure when no CSV data is found."""
+    def test_convert_ncu_to_csv_no_csv_data(self, mock_run):
+        """Test failure when no CSV data is found in ncu output."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout='No CSV data here'
         )
+        ncu_rep = self.working_dir / "test.ncu-rep"
         output_csv = self.working_dir / "output.csv"
         
         with self.assertRaises(RuntimeError) as cm:
-            run_ncu_and_parse_output(["ncu", "args"], self.working_dir, output_csv)
+            convert_ncu_to_csv(ncu_rep, output_csv)
         self.assertIn("No valid CSV data found", str(cm.exception))
+
+
+class TestParseNcuArgs(unittest.TestCase):
+    """Test cases for _parse_ncu_args function."""
+
+    def test_parse_ncu_args_mixed_formats(self):
+        """Test parsing arguments with different formats."""
+        args = ["--key1=val1", "--key2", "val2", "--flag"]
+        parsed = _parse_ncu_args(args)
+        
+        self.assertEqual(parsed["--key1"], "val1")
+        self.assertEqual(parsed["--key2"], "val2")
+        self.assertEqual(parsed["--flag"], "true")
+
+
+class TestNcuDefaults(unittest.TestCase):
+    """Test cases for NcuDefaults class."""
+
+    def test_to_dict(self):
+        """Test conversion to dictionary."""
+        defaults = NcuDefaults()
+        d = defaults.to_dict()
+        
+        self.assertEqual(d["--target-processes"], "all")
+        self.assertIn("--nvtx-include", d)
+        self.assertEqual(d["--replay-mode"], "application")
 
 
 class TestGetMetricsStr(unittest.TestCase):
@@ -220,13 +251,17 @@ class TestRunNcuProfile(unittest.TestCase):
     """Test cases for run_ncu_profile function."""
 
     @patch("ncompass.profile.ncu.get_metrics_str")
-    @patch("ncompass.profile.ncu.run_ncu_and_parse_output")
-    def test_run_ncu_profile_success(self, mock_run, mock_get_metrics):
+    @patch("subprocess.run")
+    @patch("pathlib.Path.exists")
+    def test_run_ncu_profile_success(self, mock_exists, mock_run, mock_get_metrics):
         """Test successful profiling run."""
         mock_get_metrics.return_value = "metric1,metric2"
+        mock_exists.return_value = True
         trace_dir = Path("/tmp/traces")
         
-        with patch("pathlib.Path.mkdir"): # Avoid creating real dir
+        with patch("ncompass.profile.ncu.config") as mock_config:
+            mock_config.ncu_metrics = ("metric1", "metric2")
+            
             result = run_ncu_profile(
                 command=["python", "test.py"],
                 output_name="test_out",
@@ -234,11 +269,26 @@ class TestRunNcuProfile(unittest.TestCase):
                 working_dir=Path("/tmp")
             )
             
-            self.assertEqual(result, trace_dir / "test_out.csv")
+            self.assertEqual(result, trace_dir / "test_out.ncu-rep")
             mock_run.assert_called_once()
             cmd = mock_run.call_args[0][0]
-            self.assertIn("--metrics", cmd)
-            self.assertIn("metric1,metric2", cmd)
+            self.assertIn("--metrics=metric1,metric2", cmd)
+
+    @patch("ncompass.profile.ncu.get_metrics_str")
+    @patch("subprocess.run")
+    def test_run_ncu_profile_failure(self, mock_run, mock_get_metrics):
+        """Test profiling run failure."""
+        mock_get_metrics.return_value = "metric1"
+        mock_run.side_effect = subprocess.CalledProcessError(1, "ncu")
+        trace_dir = Path("/tmp/traces")
+        
+        result = run_ncu_profile(
+            command=["python", "test.py"],
+            output_name="test_out",
+            trace_dir=trace_dir
+        )
+        
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

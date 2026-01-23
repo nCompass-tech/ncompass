@@ -423,6 +423,210 @@ class TestPerfettoValidation:
         )
 
 
+@pytest.mark.integration
+class TestOverlapDetection:
+    """Test suite for overlap detection in trace processing."""
+
+    def test_overlapping_kernel_moved_to_overflow_track(self, golden_dir: Path):
+        """
+        Verify that partially overlapping kernel events are moved to overflow tracks.
+
+        This tests the overlap detection logic in process_chrome_trace_file().
+        The golden reference file contains these events on tid=7:
+          1. ts=1656230196442.499, dur=2.463 → ends at 444.962
+          2. ts=1656230196443.714, dur=8.065 → ends at 451.779 (overlaps with #1)
+
+        Event #2 starts BEFORE event #1 ends but ends AFTER, so it's a partial
+        overlap and should be moved to the overflow track "↳ 7".
+        """
+        from ncompass.trace.converters.utils import process_chrome_trace_file
+        import gzip
+        import orjson
+        import tempfile
+
+        input_path = golden_dir / "5reqs-50in-5out-0.12.0-1759.json"
+        assert input_path.exists(), f"Golden reference not found: {input_path}"
+
+        with tempfile.NamedTemporaryFile(suffix=".json.gz", delete=False) as tmp:
+            output_path = tmp.name
+
+        try:
+            process_chrome_trace_file(str(input_path), output_path)
+
+            with gzip.open(output_path, "rb") as f:
+                trace_data = orjson.loads(f.read())
+
+            events = trace_data.get("traceEvents", [])
+
+            target_ts = 1656230196443.714
+            target_events = [
+                e for e in events
+                if e.get("ph") == "X"
+                and e.get("cat") == "kernel"
+                and abs(e.get("ts", 0) - target_ts) < 0.001
+            ]
+
+            assert len(target_events) == 1, (
+                f"Expected exactly 1 event at ts={target_ts}, found {len(target_events)}"
+            )
+
+            event = target_events[0]
+            tid = event.get("tid")
+
+            # Overflow TID for 7 is 107 (original + 100)
+            expected_tid = 107
+            assert tid == expected_tid, (
+                f"Event at ts={target_ts} should be on overflow track {expected_tid}, "
+                f"but found tid={tid!r}. This indicates the overlap detection "
+                f"failed to move the partially overlapping event."
+            )
+
+            print(f"\n✓ Event at ts={target_ts} correctly moved to overflow track '{tid}'")
+
+        finally:
+            import os
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_overlap_detection_unit(self):
+        """
+        Unit test for _process_event_for_overlap with minimal example.
+
+        Tests the exact scenario from the bug report:
+          Event 1: ts=442.499, dur=2.463 → ends at 444.962
+          Event 2: ts=443.714, dur=8.065 → ends at 451.779 (partial overlap)
+
+        Event 2 should be moved to overflow track.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+
+        state = OverflowState()
+
+        event1 = {
+            "ph": "X", "cat": "kernel", "name": "kernel1",
+            "pid": 0, "tid": 7,
+            "ts": 1656230196442.499, "dur": 2.463,
+        }
+        event2 = {
+            "ph": "X", "cat": "kernel", "name": "kernel2",
+            "pid": 0, "tid": 7,
+            "ts": 1656230196443.714, "dur": 8.065,
+        }
+
+        result1 = _process_event_for_overlap(event1, state)
+        print(f"\nAfter event1: max_end = {state.max_end}")
+        print(f"  Event1 tid: {result1.get('tid')}")
+
+        result2 = _process_event_for_overlap(event2, state)
+        print(f"After event2: max_end = {state.max_end}")
+        print(f"  Event2 tid: {result2.get('tid')}")
+
+        event1_end = event1["ts"] + event1["dur"]
+        event2_end = event2["ts"] + event2["dur"]
+        print(f"\nEvent1: ts={event1['ts']}, end={event1_end}")
+        print(f"Event2: ts={event2['ts']}, end={event2_end}")
+        print(f"Event2 starts before Event1 ends: {event2['ts']} < {event1_end} = {event2['ts'] < event1_end}")
+        print(f"Event2 ends after Event1 ends: {event2_end} > {event1_end} = {event2_end > event1_end}")
+
+        assert result1.get("tid") == 7, "Event1 should stay on original track"
+        # Overflow TID for 7 is 107
+        assert result2.get("tid") == 107, (
+            f"Event2 should be moved to overflow track 107, "
+            f"but found tid={result2.get('tid')!r}"
+        )
+
+    def test_non_overlapping_events_unit(self):
+        """
+        Negative test: Events that don't overlap should stay on original track.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+        state = OverflowState()
+
+        # Event 2 starts exactly when Event 1 ends
+        event1 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 100.0, "dur": 50.0}
+        event2 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 150.0, "dur": 50.0}
+
+        r1 = _process_event_for_overlap(event1, state)
+        r2 = _process_event_for_overlap(event2, state)
+
+        assert r1.get("tid") == 7
+        assert r2.get("tid") == 7
+
+        # Event 3 starts well after Event 2 ends
+        event3 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 300.0, "dur": 50.0}
+        r3 = _process_event_for_overlap(event3, state)
+        assert r3.get("tid") == 7
+
+    def test_nested_events_unit(self):
+        """
+        Negative test: Events completely inside another should stay on original track.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+        state = OverflowState()
+
+        event1 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 100.0, "dur": 100.0}
+        event2 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 120.0, "dur": 50.0}
+
+        r1 = _process_event_for_overlap(event1, state)
+        r2 = _process_event_for_overlap(event2, state)
+
+        assert r1.get("tid") == 7
+        assert r2.get("tid") == 7
+        assert state.max_end[(0, 7)] == 200.0
+
+    def test_different_tracks_unit(self):
+        """
+        Negative test: Events on different tracks should not cause overflows for each other.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+        state = OverflowState()
+
+        event1 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 100.0, "dur": 100.0}
+        event2 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": 8, "ts": 150.0, "dur": 100.0}
+
+        r1 = _process_event_for_overlap(event1, state)
+        r2 = _process_event_for_overlap(event2, state)
+
+        assert r1.get("tid") == 7
+        assert r2.get("tid") == 8
+
+    def test_ignored_events_unit(self):
+        """
+        Negative test: Non-X phase or user_annotation category should be ignored.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+        state = OverflowState()
+
+        # Initial event to set max_end
+        _process_event_for_overlap({"ph": "X", "cat": "kernel", "pid": 0, "tid": 7, "ts": 100.0, "dur": 100.0}, state)
+
+        # Event with ph='B' (Begin) - should be ignored even if overlapping
+        event_b = {"ph": "B", "cat": "kernel", "pid": 0, "tid": 7, "ts": 150.0}
+        r_b = _process_event_for_overlap(event_b, state)
+        assert r_b.get("tid") == 7
+
+        # Event with user_annotation in category - should be ignored
+        event_ua = {"ph": "X", "cat": "user_annotation", "pid": 0, "tid": 7, "ts": 150.0, "dur": 100.0}
+        r_ua = _process_event_for_overlap(event_ua, state)
+        assert r_ua.get("tid") == 7
+
+    def test_string_tid_unit(self):
+        """
+        Test overlap detection with string TIDs.
+        """
+        from ncompass.trace.converters.utils import _process_event_for_overlap, OverflowState
+        state = OverflowState()
+
+        event1 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": "stream_1", "ts": 100.0, "dur": 100.0}
+        event2 = {"ph": "X", "cat": "kernel", "pid": 0, "tid": "stream_1", "ts": 150.0, "dur": 100.0}
+
+        r1 = _process_event_for_overlap(event1, state)
+        r2 = _process_event_for_overlap(event2, state)
+
+        assert r1.get("tid") == "stream_1"
+        assert r2.get("tid") == "↳ stream_1"
+
+
 @pytest.mark.skipif(
     len(TEST_FILE_STEMS) == 0,
     reason="No .nsys-rep files found in test_files/"
