@@ -1,19 +1,100 @@
 //! High-performance streaming JSON writer for Chrome Trace format
 
 use anyhow::{Context, Result};
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use gzp::deflate::Gzip;
 use gzp::par::compress::{ParCompress, ParCompressBuilder};
 use gzp::ZWriter;
+use ordered_float::OrderedFloat;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
 use crate::models::{ChromeTraceEvent, ChromeTracePhase};
 
-/// Unicode arrow prefix for overflow tracks (U+21B3)
-pub const OVERFLOW_PREFIX: &str = "↳ ";
+pub const OVERFLOW_NAME_PREFIX: &str = "↳ ";
+const OVERFLOW_TID_OFFSET: i64 = 100;
+
+fn compute_overflow_tid(original_tid: &str) -> String {
+    if let Ok(tid_num) = original_tid.parse::<i64>() {
+        (tid_num + OVERFLOW_TID_OFFSET).to_string()
+    } else {
+        format!("{}{}", OVERFLOW_NAME_PREFIX, original_tid)
+    }
+}
+
+struct OverflowState {
+    max_end: HashMap<(String, String), f64>,
+    thread_names: HashMap<(String, String), String>,
+    thread_sort_indices: HashMap<(String, String), i64>,
+    overflow_tracks: HashMap<(String, String), (String, String)>,
+    moved_events: HashMap<(String, String, OrderedFloat<f64>), String>,
+}
+
+impl OverflowState {
+    fn new() -> Self {
+        Self {
+            max_end: HashMap::new(),
+            thread_names: HashMap::new(),
+            thread_sort_indices: HashMap::new(),
+            overflow_tracks: HashMap::new(),
+            moved_events: HashMap::new(),
+        }
+    }
+
+    fn extract_thread_metadata(&mut self, event: &ChromeTraceEvent) {
+        if event.ph != ChromeTracePhase::Metadata {
+            return;
+        }
+        let key = (event.pid.clone(), event.tid.clone());
+        match event.name.as_str() {
+            "thread_name" => {
+                if let Some(name) = event.args.get("name").and_then(|v| v.as_str()) {
+                    self.thread_names.insert(key, name.to_string());
+                }
+            }
+            "thread_sort_index" => {
+                if let Some(idx) = event.args.get("sort_index").and_then(|v| v.as_i64()) {
+                    self.thread_sort_indices.insert(key, idx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn generate_overflow_metadata(&self) -> Vec<ChromeTraceEvent> {
+        let mut events = Vec::new();
+        for ((pid, overflow_tid), (_, original_tid)) in &self.overflow_tracks {
+            let original_key = (pid.clone(), original_tid.clone());
+
+            let overflow_name = if let Some(original_name) = self.thread_names.get(&original_key) {
+                format!("{}{}", OVERFLOW_NAME_PREFIX, original_name)
+            } else {
+                format!("{}{}", OVERFLOW_NAME_PREFIX, original_tid)
+            };
+
+            let mut args = HashMap::new();
+            args.insert("name".to_string(), serde_json::json!(overflow_name));
+            events.push(ChromeTraceEvent::metadata(
+                "thread_name".to_string(),
+                pid.clone(),
+                overflow_tid.clone(),
+                args,
+            ));
+
+            if let Some(&sort_index) = self.thread_sort_indices.get(&original_key) {
+                let mut sort_args = HashMap::new();
+                sort_args.insert("sort_index".to_string(), serde_json::json!(sort_index + 1));
+                events.push(ChromeTraceEvent::metadata(
+                    "thread_sort_index".to_string(),
+                    pid.clone(),
+                    overflow_tid.clone(),
+                    sort_args,
+                ));
+            }
+        }
+        events
+    }
+}
 
 /// Streaming JSON writer for Chrome Trace format
 pub struct ChromeTraceWriter;
@@ -25,41 +106,51 @@ impl ChromeTraceWriter {
     /// overlap (start during previous but end after) get dropped. This function detects
     /// such events and moves them to a virtual overflow track.
     ///
-    /// Returns the (potentially modified) event.
-    fn process_event_for_overlap(
-        event: &mut ChromeTraceEvent,
-        max_end: &mut HashMap<(String, String), f64>,
-    ) {
-        // Only process Complete events (phase X) with duration
+    /// Returns true if the event was moved to an overflow track.
+    fn process_event_for_overlap(event: &mut ChromeTraceEvent, state: &mut OverflowState) -> bool {
         if event.ph != ChromeTracePhase::Complete {
-            return;
+            return false;
         }
         let dur = match event.dur {
             Some(d) => d,
-            None => return,
+            None => return false,
         };
 
         let ts = event.ts;
         let event_end = ts + dur;
-        let original_key = (event.pid.clone(), event.tid.clone());
-        let overflow_tid = format!("{}{}", OVERFLOW_PREFIX, event.tid);
+        let original_tid = event.tid.clone();
+        let original_key = (event.pid.clone(), original_tid.clone());
+        let overflow_tid = compute_overflow_tid(&original_tid);
         let overflow_key = (event.pid.clone(), overflow_tid.clone());
 
-        let orig_max = *max_end.get(&original_key).unwrap_or(&f64::NEG_INFINITY);
+        let orig_max = *state.max_end.get(&original_key).unwrap_or(&f64::NEG_INFINITY);
 
-        // Check if event fits on original track:
-        // - No overlap (starts after previous ends): ts >= orig_max
-        // - Fully nested (ends before previous ends): event_end <= orig_max
         if ts >= orig_max || event_end <= orig_max {
-            // Keep on original track
             let new_max = orig_max.max(event_end);
-            max_end.insert(original_key, new_max);
+            state.max_end.insert(original_key, new_max);
+            false
         } else {
-            // Partial overlap - move to overflow track
-            event.tid = overflow_tid;
-            let overflow_max = *max_end.get(&overflow_key).unwrap_or(&f64::NEG_INFINITY);
+            event.tid = overflow_tid.clone();
+            let overflow_max = *state.max_end.get(&overflow_key).unwrap_or(&f64::NEG_INFINITY);
             let new_max = overflow_max.max(event_end);
-            max_end.insert(overflow_key, new_max);
+            state.max_end.insert(overflow_key.clone(), new_max);
+
+            state.overflow_tracks.insert(overflow_key, original_key.clone());
+            state.moved_events.insert(
+                (event.pid.clone(), original_tid, OrderedFloat(ts)),
+                event.tid.clone(),
+            );
+            true
+        }
+    }
+
+    fn update_flow_event_if_needed(event: &mut ChromeTraceEvent, state: &OverflowState) {
+        if event.ph != ChromeTracePhase::FlowStart && event.ph != ChromeTracePhase::FlowFinish {
+            return;
+        }
+        let key = (event.pid.clone(), event.tid.clone(), OrderedFloat(event.ts));
+        if let Some(new_tid) = state.moved_events.get(&key) {
+            event.tid = new_tid.clone();
         }
     }
 
@@ -70,29 +161,38 @@ impl ChromeTraceWriter {
     pub fn write(output_path: &str, mut events: Vec<ChromeTraceEvent>) -> Result<()> {
         let file = File::create(output_path)
             .with_context(|| format!("Failed to create output file: {}", output_path))?;
-        let mut writer = BufWriter::with_capacity(256 * 1024, file); // 256KB buffer
+        let mut writer = BufWriter::with_capacity(256 * 1024, file);
 
-        // Track max end time per (pid, tid) for overlap detection
-        let mut max_end: HashMap<(String, String), f64> = HashMap::new();
+        let mut state = OverflowState::new();
 
-        // Write opening with newline
+        for event in &events {
+            state.extract_thread_metadata(event);
+        }
+
         writer.write_all(b"{\"traceEvents\":[\n")?;
 
-        // Write events with commas between them
-        // Each event on its own line to avoid Perfetto parser issues with very long lines
-        for (i, event) in events.iter_mut().enumerate() {
-            // Process event for overlap and potentially assign to overflow track
-            Self::process_event_for_overlap(event, &mut max_end);
+        let mut first = true;
+        for event in events.iter_mut() {
+            Self::process_event_for_overlap(event, &mut state);
+            Self::update_flow_event_if_needed(event, &state);
 
-            if i > 0 {
+            if !first {
                 writer.write_all(b",\n")?;
+            } else {
+                first = false;
             }
             let json = serde_json::to_vec(&event)
                 .with_context(|| format!("Failed to serialize event: {:?}", event))?;
             writer.write_all(&json)?;
         }
 
-        // Write closing with newline
+        for metadata_event in state.generate_overflow_metadata() {
+            writer.write_all(b",\n")?;
+            let json = serde_json::to_vec(&metadata_event)
+                .with_context(|| "Failed to serialize overflow metadata event")?;
+            writer.write_all(&json)?;
+        }
+
         writer.write_all(b"\n]}")?;
         writer.flush()?;
 
@@ -110,45 +210,50 @@ impl ChromeTraceWriter {
         let file = File::create(output_path)
             .with_context(|| format!("Failed to create output file: {}", output_path))?;
 
-        // Create parallel gzip encoder (pigz-style)
-        // Uses all available CPU cores by default
-        let mut gz_writer: ParCompress<Gzip> = ParCompressBuilder::new()
-            .from_writer(file);
+        let mut gz_writer: ParCompress<Gzip> = ParCompressBuilder::new().from_writer(file);
 
-        // Track max end time per (pid, tid) for overlap detection
-        let mut max_end: HashMap<(String, String), f64> = HashMap::new();
+        let mut state = OverflowState::new();
 
-        // Batch buffer to reduce the number of write calls to encoder
-        let mut batch_buffer = Vec::with_capacity(300 * 1024); // 256KB batch +
-                                                                                 // Overhead
+        for event in &events {
+            state.extract_thread_metadata(event);
+        }
 
-        // Write opening with newline
+        let mut batch_buffer = Vec::with_capacity(300 * 1024);
+
         batch_buffer.extend_from_slice(b"{\"traceEvents\":[\n");
 
-        // Write events with commas between them, batching to reduce encoder overhead
-        // Each event on its own line to avoid Perfetto parser issues with very long lines
-        for (i, event) in events.iter_mut().enumerate() {
-            // Process event for overlap and potentially assign to overflow track
-            Self::process_event_for_overlap(event, &mut max_end);
+        let mut first = true;
+        for event in events.iter_mut() {
+            Self::process_event_for_overlap(event, &mut state);
+            Self::update_flow_event_if_needed(event, &state);
 
-            if i > 0 {
+            if !first {
                 batch_buffer.extend_from_slice(b",\n");
+            } else {
+                first = false;
             }
-            // Writing to Vec is fast (just memory copies)
             serde_json::to_writer(&mut batch_buffer, &event)
                 .with_context(|| format!("Failed to serialize event: {:?}", event))?;
 
-            // Flush batch to encoder when it gets large enough (256KB threshold)
             if batch_buffer.len() >= 256 * 1024 {
                 gz_writer.write_all(&batch_buffer)?;
                 batch_buffer.clear();
             }
         }
 
-        // Write closing with newline
+        for metadata_event in state.generate_overflow_metadata() {
+            batch_buffer.extend_from_slice(b",\n");
+            serde_json::to_writer(&mut batch_buffer, &metadata_event)
+                .with_context(|| "Failed to serialize overflow metadata event")?;
+
+            if batch_buffer.len() >= 256 * 1024 {
+                gz_writer.write_all(&batch_buffer)?;
+                batch_buffer.clear();
+            }
+        }
+
         batch_buffer.extend_from_slice(b"\n]}");
 
-        // Flush remaining buffer
         if !batch_buffer.is_empty() {
             gz_writer.write_all(&batch_buffer)?;
         }

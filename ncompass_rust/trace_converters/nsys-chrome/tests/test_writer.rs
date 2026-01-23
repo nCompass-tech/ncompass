@@ -2,7 +2,7 @@
 
 use flate2::read::GzDecoder;
 use nsys_chrome::models::{ChromeTraceEvent, ChromeTracePhase};
-use nsys_chrome::writer::{ChromeTraceWriter, OVERFLOW_PREFIX};
+use nsys_chrome::writer::{ChromeTraceWriter, OVERFLOW_NAME_PREFIX};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -523,7 +523,7 @@ fn test_overlap_partial_overlap_moves_to_overflow() {
     assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
     assert_eq!(
         parsed["traceEvents"][1]["tid"],
-        format!("{}Stream 7", OVERFLOW_PREFIX)
+        format!("{}Stream 7", OVERFLOW_NAME_PREFIX)
     );
 }
 
@@ -562,7 +562,7 @@ fn test_overlap_small_overlap_like_real_gpu_traces() {
     assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
     assert_eq!(
         parsed["traceEvents"][1]["tid"],
-        format!("{}Stream 7", OVERFLOW_PREFIX)
+        format!("{}Stream 7", OVERFLOW_NAME_PREFIX)
     );
 }
 
@@ -718,7 +718,7 @@ fn test_overlap_track_reused_after_gap() {
     assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
     assert_eq!(
         parsed["traceEvents"][1]["tid"],
-        format!("{}Stream 7", OVERFLOW_PREFIX)
+        format!("{}Stream 7", OVERFLOW_NAME_PREFIX)
     );
     assert_eq!(parsed["traceEvents"][2]["tid"], "Stream 7"); // Back to original track
 }
@@ -760,7 +760,7 @@ fn test_overlap_gz_handles_partial_overlap() {
     assert_eq!(parsed["traceEvents"][0]["tid"], "Stream 7");
     assert_eq!(
         parsed["traceEvents"][1]["tid"],
-        format!("{}Stream 7", OVERFLOW_PREFIX)
+        format!("{}Stream 7", OVERFLOW_NAME_PREFIX)
     );
 }
 

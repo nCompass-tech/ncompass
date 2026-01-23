@@ -1,33 +1,83 @@
 """Utility functions for nsys2chrome conversion."""
 
-from typing import Any, Iterator
-from .models import VALID_CHROME_TRACE_PHASES
+import gzip
+from pathlib import Path
+from typing import Any, Iterable, Iterator, Optional
+
 import orjson
 
-# Unicode arrow for overflow tracks (U+21B3)
-_OVERFLOW_PREFIX = "↳ "
+from .models import VALID_CHROME_TRACE_PHASES
+from ncompass.types import NCBase
+
+_OVERFLOW_NAME_PREFIX = "↳ "
+_OVERFLOW_TID_OFFSET = 100
 
 
-def _process_event_for_overlap(
-    event: dict,
-    max_end: dict[tuple, float],
-) -> dict:
-    """
-    Process a single event for overlap detection and assign to virtual track if needed.
-    
-    Perfetto requires strict nesting for events on the same track. Events that partially
-    overlap (start during previous but end after) get dropped. This function detects
-    such events and moves them to a virtual overflow track.
-    
-    Args:
-        event: Chrome Trace event dict (must have ph, ts, dur, pid, tid for X events)
-        max_end: Dict mapping (pid, tid) -> max end time seen so far. Modified in place.
-        
-    Returns:
-        The event, potentially with modified tid if moved to overflow track.
-    """
-    # Only process Complete events (phase X) with duration
+def _compute_overflow_tid(original_tid):
+    if isinstance(original_tid, int):
+        return original_tid + _OVERFLOW_TID_OFFSET
+    try:
+        return int(original_tid) + _OVERFLOW_TID_OFFSET
+    except (ValueError, TypeError):
+        return f"{_OVERFLOW_NAME_PREFIX}{original_tid}"
+
+
+class OverflowState(NCBase):
+    def __init__(self):
+        self.max_end: dict[tuple, float] = {}
+        self.thread_names: dict[tuple, str] = {}
+        self.thread_sort_indices: dict[tuple, int] = {}
+        self.overflow_tracks: dict[tuple, tuple] = {}
+        self.moved_events: dict[tuple, int] = {}
+
+    def extract_thread_metadata(self, event: dict) -> None:
+        if event.get('ph') != 'M':
+            return
+        key = (event.get('pid'), event.get('tid'))
+        name = event.get('name')
+        args = event.get('args', {})
+        if name == 'thread_name':
+            if thread_name := args.get('name'):
+                self.thread_names[key] = thread_name
+        elif name == 'thread_sort_index':
+            if sort_index := args.get('sort_index'):
+                self.thread_sort_indices[key] = sort_index
+
+    def generate_overflow_metadata(self) -> list[dict]:
+        events = []
+        for (pid, overflow_tid), (_, original_tid) in self.overflow_tracks.items():
+            original_key = (pid, original_tid)
+
+            original_name = self.thread_names.get(original_key)
+            overflow_name = f"{_OVERFLOW_NAME_PREFIX}{original_name}" if original_name else f"{_OVERFLOW_NAME_PREFIX}{original_tid}"
+
+            events.append({
+                "name": "thread_name",
+                "ph": "M",
+                "pid": pid,
+                "tid": overflow_tid,
+                "ts": 0.0,
+                "args": {"name": overflow_name}
+            })
+
+            if original_key in self.thread_sort_indices:
+                events.append({
+                    "name": "thread_sort_index",
+                    "ph": "M",
+                    "pid": pid,
+                    "tid": overflow_tid,
+                    "ts": 0.0,
+                    "args": {"sort_index": self.thread_sort_indices[original_key] + 1}
+                })
+        return events
+
+
+def _process_event_for_overlap(event: dict, state: OverflowState) -> dict:
     if event.get('ph') != 'X' or 'ts' not in event or 'dur' not in event:
+        return event
+    
+    cat = event.get('cat', '')
+    if 'user_annotation' in cat:
         return event
     
     pid = event.get('pid')
@@ -37,26 +87,34 @@ def _process_event_for_overlap(
     event_end = ts + dur
     
     original_key = (pid, original_tid)
-    overflow_tid = f"{_OVERFLOW_PREFIX}{original_tid}"
+    overflow_tid = _compute_overflow_tid(original_tid)
     overflow_key = (pid, overflow_tid)
     
-    orig_max = max_end.get(original_key, float('-inf'))
+    orig_max = state.max_end.get(original_key, float('-inf'))
     
-    # Check if event fits on original track:
-    # - No overlap (starts after previous ends): ts >= orig_max
-    # - Fully nested (ends before previous ends): event_end <= orig_max
     if ts >= orig_max or event_end <= orig_max:
-        # Keep on original track
-        max_end[original_key] = max(orig_max, event_end)
+        state.max_end[original_key] = max(orig_max, event_end)
         return event
     else:
-        # Partial overlap - move to overflow track
-        # Make a copy to avoid mutating the original
         event = dict(event)
         event['tid'] = overflow_tid
-        overflow_max = max_end.get(overflow_key, float('-inf'))
-        max_end[overflow_key] = max(overflow_max, event_end)
+        overflow_max = state.max_end.get(overflow_key, float('-inf'))
+        state.max_end[overflow_key] = max(overflow_max, event_end)
+        
+        state.overflow_tracks[overflow_key] = original_key
+        state.moved_events[(pid, original_tid, ts)] = overflow_tid
         return event
+
+
+def _update_flow_event_if_needed(event: dict, state: OverflowState) -> dict:
+    ph = event.get('ph')
+    if ph not in ('s', 'f'):
+        return event
+    key = (event.get('pid'), event.get('tid'), event.get('ts'))
+    if new_tid := state.moved_events.get(key):
+        event = dict(event)
+        event['tid'] = new_tid
+    return event
 
 
 def ns_to_us(timestamp_ns: int) -> float:
@@ -114,28 +172,30 @@ def write_chrome_trace(output_path: str, events: Iterator[dict]) -> None:
         output_path: Path to output JSON file
         events: Iterator of Chrome Trace event dicts (must be sorted by timestamp)
     """
-    # Track max end time per (pid, tid) for overlap detection
-    max_end: dict[tuple, float] = {}
+    event_list = list(events)
+    state = OverflowState()
+    
+    for event in event_list:
+        state.extract_thread_metadata(event)
     
     with open(output_path, 'wb') as f:
-        # Write opening with newline
         f.write(b'{"traceEvents":[\n')
         
-        # Stream events with commas between them
-        # Each event on its own line to avoid Perfetto parser issues with very long lines
         first = True
-        for event in events:
-            # Process event for overlap and potentially assign to overflow track
-            event = _process_event_for_overlap(event, max_end)
+        for event in event_list:
+            event = _process_event_for_overlap(event, state)
+            event = _update_flow_event_if_needed(event, state)
             
             if not first:
                 f.write(b',\n')
             else:
                 first = False
-            # orjson.dumps returns bytes
             f.write(orjson.dumps(event))
         
-        # Write closing with newline
+        for metadata_event in state.generate_overflow_metadata():
+            f.write(b',\n')
+            f.write(orjson.dumps(metadata_event))
+        
         f.write(b'\n]}')
 
 
@@ -149,28 +209,146 @@ def write_chrome_trace_gz(output_path: str, events: Iterator[dict]) -> None:
         output_path: Path to output gzip-compressed JSON file (.json.gz)
         events: Iterator of Chrome Trace event dicts (must be sorted by timestamp)
     """
-    import gzip
+    event_list = list(events)
+    state = OverflowState()
     
-    # Track max end time per (pid, tid) for overlap detection
-    max_end: dict[tuple, float] = {}
+    for event in event_list:
+        state.extract_thread_metadata(event)
     
     with gzip.open(output_path, 'wb') as f:
-        # Write opening with newline
         f.write(b'{"traceEvents":[\n')
         
-        # Stream events with commas between them
-        # Each event on its own line to avoid Perfetto parser issues with very long lines
         first = True
-        for event in events:
-            # Process event for overlap and potentially assign to overflow track
-            event = _process_event_for_overlap(event, max_end)
+        for event in event_list:
+            event = _process_event_for_overlap(event, state)
+            event = _update_flow_event_if_needed(event, state)
             
             if not first:
                 f.write(b',\n')
             else:
                 first = False
-            # orjson.dumps returns bytes
             f.write(orjson.dumps(event))
         
-        # Write closing with newline
+        for metadata_event in state.generate_overflow_metadata():
+            f.write(b',\n')
+            f.write(orjson.dumps(metadata_event))
+        
         f.write(b'\n]}')
+
+
+def _default_processed_output_path(input_path: Path) -> Path:
+    """Generate a default processed output path with .processed.json.gz suffix."""
+    name = input_path.name
+    if name.endswith('.json.gz'):
+        base = name[:-len('.json.gz')]
+    elif name.endswith('.json'):
+        base = input_path.stem
+    else:
+        base = input_path.stem
+    return input_path.with_name(f"{base}.processed.json.gz")
+
+
+def _read_trace_events(input_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load traceEvents from a JSON or JSON.gz Chrome trace file."""
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input trace not found: {input_path}")
+
+    opener = gzip.open if input_path.suffix == '.gz' or input_path.name.endswith('.json.gz') else Path.open
+    with opener(input_path, 'rb') as f:  # type: ignore[arg-type]
+        trace_data = orjson.loads(f.read())
+
+    extra_fields: dict[str, Any] = {}
+    events: Any
+
+    if isinstance(trace_data, dict):
+        events = trace_data.get("traceEvents")
+        if not isinstance(events, list):
+            raise ValueError("Input trace must contain a 'traceEvents' list")
+        extra_fields = {k: v for k, v in trace_data.items() if k != "traceEvents"}
+    elif isinstance(trace_data, list):
+        events = trace_data
+    else:
+        raise ValueError("Unsupported trace format. Expected dict with 'traceEvents' or a list of events.")
+
+    return events, extra_fields
+
+
+def _write_trace_with_metadata(output_path: Path, events: Iterable[dict], extra_fields: dict[str, Any]) -> None:
+    """Write processed events back to disk while preserving non-traceEvents fields."""
+    opener = gzip.open if output_path.suffix == '.gz' or output_path.name.endswith('.json.gz') else Path.open
+
+    def _stream_to_file(f) -> None:
+        f.write(b'{')
+
+        extra_items = list(extra_fields.items())
+        for idx, (key, value) in enumerate(extra_items):
+            if idx > 0:
+                f.write(b',')
+            f.write(orjson.dumps(key))
+            f.write(b':')
+            f.write(orjson.dumps(value))
+
+        if extra_items:
+            f.write(b',')
+
+        f.write(b'"traceEvents":[\n')
+
+        first = True
+        for event in events:
+            if not first:
+                f.write(b',\n')
+            else:
+                first = False
+            f.write(orjson.dumps(event))
+
+        f.write(b'\n]}')
+
+    with opener(output_path, 'wb') as f:  # type: ignore[arg-type]
+        _stream_to_file(f)
+
+
+def process_chrome_trace_file(input_path: str, output_path: Optional[str] = None) -> str:
+    """
+    Process a Chrome trace file to handle overlapping events.
+    
+    Reads a JSON or JSON.gz trace file, applies overlap detection to move
+    partially overlapping events to virtual overflow tracks, and writes
+    the processed trace.
+    
+    Args:
+        input_path: Path to input trace file (.json or .json.gz)
+        output_path: Path for output file. If None, creates .processed.json.gz
+                     in same directory.
+    
+    Returns:
+        Path to the processed trace file.
+    """
+    source_path = Path(input_path)
+    events, extra_fields = _read_trace_events(source_path)
+
+    def _ts_value(event: dict) -> float:
+        try:
+            return float(event.get('ts', 0))
+        except Exception:
+            return 0.0
+
+    events.sort(key=_ts_value)
+
+    state = OverflowState()
+    for event in events:
+        state.extract_thread_metadata(event)
+
+    def _processed_events() -> Iterator[dict]:
+        for event in events:
+            processed = _process_event_for_overlap(event, state)
+            processed = _update_flow_event_if_needed(processed, state)
+            yield processed
+        for metadata_event in state.generate_overflow_metadata():
+            yield metadata_event
+
+    target_path = Path(output_path) if output_path is not None else _default_processed_output_path(source_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    _write_trace_with_metadata(target_path, _processed_events(), extra_fields)
+
+    return str(target_path)
