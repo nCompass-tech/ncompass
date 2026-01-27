@@ -34,7 +34,7 @@ class NcuDefaults:
 
     target_processes: str = "all"
     nvtx_include: str     = "regex:user_annotated:.*/"
-    replay_mode: str      = "application"
+    clock_control: str    = "none"
 
     def to_dict(self) -> dict[str, str]:
         """Convert to dictionary with ncu argument format (--key).
@@ -44,8 +44,8 @@ class NcuDefaults:
         """
         return {
             "--target-processes": self.target_processes,
-            "--nvtx-include": self.nvtx_include,
-            "--replay-mode": self.replay_mode,
+            "--nvtx-include":     self.nvtx_include,
+            "--clock-control":    self.clock_control,
         }
 
 

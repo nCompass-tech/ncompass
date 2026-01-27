@@ -42,13 +42,14 @@ class _RewritingLoader(Trait, importlib.abc.SourceLoader):
     def get_data(self, path: str) -> bytes:
         """Read file data as bytes."""
         return open(path, "rb").read()
-    
+
     def source_to_code(self, data, path, *, _optimize=-1):
         raise NotImplementedError
 
+
 class RewritingLoader(_RewritingLoader):
     """Loader for AST rewriting. Targets a specific file."""
-    
+
     def source_to_code(self, data, path, *, _optimize=-1):
         tree = ast.parse(data, filename=path)
         tree = self.replacer.visit(tree)
