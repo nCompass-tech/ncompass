@@ -1,6 +1,7 @@
 """Utility functions for nsys2chrome conversion."""
 
 import gzip
+import shutil
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
@@ -236,18 +237,6 @@ def write_chrome_trace_gz(output_path: str, events: Iterator[dict]) -> None:
         f.write(b'\n]}')
 
 
-def _default_processed_output_path(input_path: Path) -> Path:
-    """Generate a default processed output path with .processed.json.gz suffix."""
-    name = input_path.name
-    if name.endswith('.json.gz'):
-        base = name[:-len('.json.gz')]
-    elif name.endswith('.json'):
-        base = input_path.stem
-    else:
-        base = input_path.stem
-    return input_path.with_name(f"{base}.processed.json.gz")
-
-
 def _read_trace_events(input_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Load traceEvents from a JSON or JSON.gz Chrome trace file."""
     if not input_path.exists():
@@ -317,13 +306,18 @@ def process_chrome_trace_file(input_path: str, output_path: Optional[str] = None
     
     Args:
         input_path: Path to input trace file (.json or .json.gz)
-        output_path: Path for output file. If None, creates .processed.json.gz
-                     in same directory.
-    
+        output_path: Path for output file. If None, overwrites the original file.
+
     Returns:
         Path to the processed trace file.
     """
     source_path = Path(input_path)
+
+    # Create backup if it doesn't exist
+    backup_path = Path(str(source_path) + '.bkup')
+    if not backup_path.exists():
+        shutil.copy2(source_path, backup_path)
+
     events, extra_fields = _read_trace_events(source_path)
 
     def _ts_value(event: dict) -> float:
@@ -346,7 +340,7 @@ def process_chrome_trace_file(input_path: str, output_path: Optional[str] = None
         for metadata_event in state.generate_overflow_metadata():
             yield metadata_event
 
-    target_path = Path(output_path) if output_path is not None else _default_processed_output_path(source_path)
+    target_path = Path(output_path) if output_path is not None else source_path
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     _write_trace_with_metadata(target_path, _processed_events(), extra_fields)
