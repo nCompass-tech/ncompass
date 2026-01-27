@@ -32,16 +32,15 @@ from ncompass.trace.infra.utils import logger
 class NsysDefaults:
     """Default nsys arguments for ncompass profiling."""
 
-    trace: str = "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla"
-    sample: str = "process-tree"
-    gpuctxsw: str = "true"
-    cuda_graph_trace: str = "node"
-    stop_on_exit: str = "true"
+    trace: str                  = "cuda,nvtx,osrt,cudnn,cublas,opengl,cudla"
+    sample: str                 = "process-tree"
+    gpuctxsw: str               = "true"
+    cuda_graph_trace: str       = "node"
+    stop_on_exit: str           = "true"
     trace_fork_before_exec: str = "true"
-    force_overwrite: str = "true"
-    capture_range: str = "nvtx"
-    nvtx_capture: str = "ncompass_nsys_range"
-    capture_range_end: str = "repeat"
+    force_overwrite: str        = "true"
+    capture_range: str          = "cudaProfilerApi"
+    capture_range_end: str      = "repeat"
 
     def to_dict(self) -> dict[str, str]:
         """Convert to dictionary with nsys argument format (--key)."""
@@ -54,7 +53,6 @@ class NsysDefaults:
             "--trace-fork-before-exec": self.trace_fork_before_exec,
             "--force-overwrite": self.force_overwrite,
             "--capture-range": self.capture_range,
-            "--nvtx-capture": self.nvtx_capture,
             "--capture-range-end": self.capture_range_end,
         }
 

@@ -147,12 +147,12 @@ class TestBuildNcuCommand(unittest.TestCase):
         cmd = _build_ncu_command(
             output_path=output_path,
             metrics_str="metric1",
-            extra_args=["--target-processes", "none", "--replay-mode=kernel"],
+            extra_args=["--target-processes", "none", "--clock-control=base"],
             command=["./app"]
         )
-        
+
         self.assertIn("--target-processes=none", cmd)
-        self.assertIn("--replay-mode=kernel", cmd)
+        self.assertIn("--clock-control=base", cmd)
         self.assertNotIn("--target-processes=all", cmd)
 
 
@@ -218,10 +218,10 @@ class TestNcuDefaults(unittest.TestCase):
         """Test conversion to dictionary."""
         defaults = NcuDefaults()
         d = defaults.to_dict()
-        
+
         self.assertEqual(d["--target-processes"], "all")
         self.assertIn("--nvtx-include", d)
-        self.assertEqual(d["--replay-mode"], "application")
+        self.assertEqual(d["--clock-control"], "none")
 
 
 class TestGetMetricsStr(unittest.TestCase):

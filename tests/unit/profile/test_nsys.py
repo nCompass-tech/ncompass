@@ -29,6 +29,7 @@ from ncompass.profile.nsys import (
     check_nsys_available,
     create_trace_directory,
     run_nsys_profile,
+    NsysDefaults,
 )
 
 
@@ -219,23 +220,22 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
         self.assertIn("--sample=none", cmd)
 
     @patch("subprocess.run")
-    def test_run_nsys_profile_with_range(self, mock_run):
-        """Test NVTX range capture options are included by default."""
+    def test_run_nsys_profile_with_capture_range(self, mock_run):
+        """Test cudaProfilerApi capture range is included by default."""
         mock_run.return_value = MagicMock(returncode=0)
-        
+
         expected_output = self.trace_dir / "test_output.nsys-rep"
         expected_output.touch()
-        
+
         run_nsys_profile(
             command=[str(self.script_path)],
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
         )
-        
+
         cmd = mock_run.call_args[0][0]
-        self.assertIn("--capture-range=nvtx", cmd)
-        self.assertIn("--nvtx-capture=ncompass_nsys_range", cmd)
+        self.assertIn("--capture-range=cudaProfilerApi", cmd)
         self.assertIn("--capture-range-end=repeat", cmd)
 
     @patch("subprocess.run")
@@ -508,6 +508,65 @@ class TestRunNsysProfileEdgeCases(unittest.TestCase):
         
         cmd = mock_run.call_args[0][0]
         self.assertIn("--cuda-graph-trace=graph", cmd)
+
+
+class TestNsysDefaults(unittest.TestCase):
+    """Test cases for NsysDefaults class."""
+
+    def test_to_dict_returns_nsys_argument_format(self):
+        """Test that to_dict returns dictionary with nsys argument keys."""
+        defaults = NsysDefaults()
+        d = defaults.to_dict()
+
+        # Verify keys are in nsys --key format
+        for key in d.keys():
+            self.assertTrue(key.startswith("--"), f"Key should start with '--': {key}")
+
+    def test_to_dict_contains_expected_keys(self):
+        """Test that to_dict contains all expected nsys arguments."""
+        defaults = NsysDefaults()
+        d = defaults.to_dict()
+
+        expected_keys = [
+            "--trace",
+            "--sample",
+            "--gpuctxsw",
+            "--cuda-graph-trace",
+            "--stop-on-exit",
+            "--trace-fork-before-exec",
+            "--force-overwrite",
+            "--capture-range",
+            "--capture-range-end",
+        ]
+
+        for key in expected_keys:
+            self.assertIn(key, d, f"Missing expected key: {key}")
+
+    def test_to_dict_capture_range_is_cuda_profiler_api(self):
+        """Test that capture_range defaults to cudaProfilerApi."""
+        defaults = NsysDefaults()
+        d = defaults.to_dict()
+
+        self.assertEqual(d["--capture-range"], "cudaProfilerApi")
+        self.assertEqual(d["--capture-range-end"], "repeat")
+
+    def test_to_dict_no_nvtx_capture(self):
+        """Test that to_dict does not contain nvtx-capture key."""
+        defaults = NsysDefaults()
+        d = defaults.to_dict()
+
+        # The new NsysDefaults uses cudaProfilerApi capture range instead of nvtx
+        # So nvtx-capture should not be present
+        self.assertNotIn("--nvtx-capture", d)
+
+    def test_to_dict_default_trace_types(self):
+        """Test that default trace types include cuda and nvtx."""
+        defaults = NsysDefaults()
+        d = defaults.to_dict()
+
+        trace_value = d["--trace"]
+        self.assertIn("cuda", trace_value)
+        self.assertIn("nvtx", trace_value)
 
 
 if __name__ == "__main__":
