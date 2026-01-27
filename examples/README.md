@@ -13,7 +13,7 @@ The best way to use nCompass is through our **[VSCode extension](https://marketp
 Each example is self-contained and demonstrates different profiling workflows:
 
 - **[vLLM Profiling Example](vllm_example/)** — Profile vLLM using .pth-based auto-initialization with NCU, Nsys, and Torch profilers
-- **[Running remotely on Modal](modal_example/)** — Run profiling sessions on Modal cloud infrastructure
+- **[Running remotely on Modal](modal_basic_example/)** — Run profiling sessions on Modal cloud infrastructure
 
 > 💡 **Tip**: Each example includes a detailed README with step-by-step instructions and explanations.
 
