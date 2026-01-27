@@ -2251,5 +2251,474 @@ class TestStatementFlattening(unittest.TestCase):
         top_level_withs = [stmt for stmt in non_import_stmts if isinstance(stmt, ast.With)]
         self.assertEqual(len(top_level_withs), 0, "For loop should not be wrapped at top level")
 
+
+class TestAsyncMethodTransplants(unittest.TestCase):
+    """Test cases for async method transplant (replacement) functionality."""
+
+    def setUp(self):
+        """Set up test fixtures with a custom replacer for async method replacement."""
+        self.replacer = DynamicReplacer(
+            _fullname="test.async.transplant",
+            _class_replacements={},
+            _class_func_replacements={
+                "AsyncTestClass": {
+                    "async_old_method": "replacement.module.ReplacementClass.new_async_method",
+                }
+            }
+        )
+
+    def test_async_method_replacement_creates_wrapper(self):
+        """Test that async method replacement creates proper wrapper with import."""
+        # Create a class with an async method to be replaced
+        async_old_method = ast.AsyncFunctionDef(
+            name="async_old_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass()],
+            decorator_list=[],
+            returns=None
+        )
+
+        unchanged_method = ast.FunctionDef(
+            name="unchanged_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass()],
+            decorator_list=[],
+            returns=None
+        )
+
+        class_node = ast.ClassDef(
+            name="AsyncTestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[async_old_method, unchanged_method]
+        )
+
+        result = self.replacer.visit_ClassDef(class_node)
+
+        # Should return the modified class
+        self.assertIsInstance(result, ast.ClassDef)
+        self.assertEqual(result.name, "AsyncTestClass")
+        self.assertEqual(len(result.body), 2)  # wrapper + unchanged_method
+
+        # First should be the wrapper function (should be FunctionDef, not async)
+        wrapper_func = result.body[0]
+        self.assertIsInstance(wrapper_func, ast.FunctionDef)
+        self.assertEqual(wrapper_func.name, "async_old_method")
+
+        # Check wrapper function structure
+        self.assertEqual(len(wrapper_func.body), 2)  # import + return
+
+        # First statement should be import
+        import_stmt = wrapper_func.body[0]
+        self.assertIsInstance(import_stmt, ast.ImportFrom)
+        self.assertEqual(import_stmt.module, "replacement.module")
+        self.assertEqual(import_stmt.names[0].name, "ReplacementClass")
+
+        # Second statement should be return with method call
+        return_stmt = wrapper_func.body[1]
+        self.assertIsInstance(return_stmt, ast.Return)
+        call = return_stmt.value
+        self.assertIsInstance(call.func, ast.Attribute)
+        self.assertEqual(call.func.attr, "new_async_method")
+
+    def test_async_method_not_in_config_unchanged(self):
+        """Test that async methods not in replacement config are unchanged."""
+        # Create a class with an async method that's NOT in the replacement config
+        other_async_method = ast.AsyncFunctionDef(
+            name="other_async_method",  # Not in config
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass()],
+            decorator_list=[],
+            returns=None
+        )
+
+        class_node = ast.ClassDef(
+            name="AsyncTestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[other_async_method]
+        )
+
+        result = self.replacer.visit_ClassDef(class_node)
+
+        # Should return the class with unchanged async method
+        self.assertIsInstance(result, ast.ClassDef)
+        self.assertEqual(len(result.body), 1)
+
+        # Should still be an AsyncFunctionDef (not replaced)
+        self.assertIsInstance(result.body[0], ast.AsyncFunctionDef)
+        self.assertEqual(result.body[0].name, "other_async_method")
+
+    def test_mixed_sync_and_async_method_replacement(self):
+        """Test that both sync and async methods can be replaced in same class."""
+        replacer = DynamicReplacer(
+            _fullname="test.mixed.transplant",
+            _class_replacements={},
+            _class_func_replacements={
+                "MixedClass": {
+                    "sync_method": "sync.module.SyncReplacement.sync_replacement",
+                    "async_method": "async.module.AsyncReplacement.async_replacement",
+                }
+            }
+        )
+
+        sync_method = ast.FunctionDef(
+            name="sync_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass()],
+            decorator_list=[],
+            returns=None
+        )
+
+        async_method = ast.AsyncFunctionDef(
+            name="async_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass()],
+            decorator_list=[],
+            returns=None
+        )
+
+        class_node = ast.ClassDef(
+            name="MixedClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[sync_method, async_method]
+        )
+
+        result = replacer.visit_ClassDef(class_node)
+
+        # Should return the class with both methods replaced
+        self.assertIsInstance(result, ast.ClassDef)
+        self.assertEqual(len(result.body), 2)
+
+        # Both should be wrappers (FunctionDef)
+        wrapper1 = result.body[0]
+        wrapper2 = result.body[1]
+
+        self.assertIsInstance(wrapper1, ast.FunctionDef)
+        self.assertIsInstance(wrapper2, ast.FunctionDef)
+
+        # Check wrapper names
+        wrapper_names = {wrapper1.name, wrapper2.name}
+        self.assertEqual(wrapper_names, {"sync_method", "async_method"})
+
+        # Verify imports for each wrapper
+        for wrapper in [wrapper1, wrapper2]:
+            self.assertIsInstance(wrapper.body[0], ast.ImportFrom)
+            self.assertIsInstance(wrapper.body[1], ast.Return)
+
+
+class TestAsyncFunctionLineRangeWrapping(unittest.TestCase):
+    """Test cases for async function line range wrapping functionality."""
+
+    def setUp(self):
+        """Set up test fixtures with a custom replacer."""
+        self.replacer = DynamicReplacer(
+            _fullname="test.async.range",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'async_test_method',
+                    'start_line': 10,
+                    'end_line': 12,
+                    'context_class': 'test.context.TestContext',
+                    'context_values': []
+                }
+            ]
+        )
+
+    def test_async_function_line_range_wrapping(self):
+        """Test that async functions can have line ranges wrapped."""
+        # Create an async function with statements that will be wrapped
+        async_method = ast.AsyncFunctionDef(
+            name="async_test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="y", ctx=ast.Store())],
+                    value=ast.Constant(value=2),
+                    lineno=11
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="z", ctx=ast.Store())],
+                    value=ast.Constant(value=3),
+                    lineno=12
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+
+        # Visit the async function directly
+        result = self.replacer.visit_AsyncFunctionDef(async_method)
+
+        # Should still be an AsyncFunctionDef
+        self.assertIsInstance(result, ast.AsyncFunctionDef)
+
+        # Should have an import and a With statement wrapping the assignments
+        self.assertTrue(len(result.body) >= 2)
+
+        # First statement should be an import
+        self.assertIsInstance(result.body[0], ast.ImportFrom)
+        self.assertEqual(result.body[0].module, "test.context")
+        self.assertEqual(result.body[0].names[0].name, "TestContext")
+
+        # Second statement should be a With wrapping the assignments
+        self.assertIsInstance(result.body[1], ast.With)
+        with_stmt = result.body[1]
+        self.assertEqual(len(with_stmt.body), 3)  # 3 wrapped assignments
+
+    def test_async_function_preserves_await_expressions(self):
+        """Test that await expressions inside async functions are preserved."""
+        replacer = DynamicReplacer(
+            _fullname="test.async.await",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'async_with_await',
+                    'start_line': 10,
+                    'end_line': 11,
+                    'context_class': 'test.context.TestContext',
+                    'context_values': []
+                }
+            ]
+        )
+
+        # Create an async function with await expression
+        async_method = ast.AsyncFunctionDef(
+            name="async_with_await",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Expr(
+                    value=ast.Await(
+                        value=ast.Call(
+                            func=ast.Name(id="some_async_func", ctx=ast.Load()),
+                            args=[],
+                            keywords=[]
+                        )
+                    ),
+                    lineno=10
+                ),
+                ast.Assign(
+                    targets=[ast.Name(id="result", ctx=ast.Store())],
+                    value=ast.Constant(value=42),
+                    lineno=11
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+
+        result = replacer.visit_AsyncFunctionDef(async_method)
+
+        # Should still be an AsyncFunctionDef
+        self.assertIsInstance(result, ast.AsyncFunctionDef)
+
+        # Find the With statement
+        with_stmts = [stmt for stmt in result.body if isinstance(stmt, ast.With)]
+        self.assertEqual(len(with_stmts), 1)
+
+        # The await should be preserved inside the With body
+        with_body = with_stmts[0].body
+        await_exprs = [
+            stmt for stmt in with_body
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Await)
+        ]
+        self.assertEqual(len(await_exprs), 1)
+
+    def test_async_function_not_targeted_unchanged(self):
+        """Test that async functions not in config are unchanged."""
+        # Create an async function that's NOT in the wrapping config
+        other_async_method = ast.AsyncFunctionDef(
+            name="other_async_method",  # Not 'async_test_method'
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+
+        result = self.replacer.visit_AsyncFunctionDef(other_async_method)
+
+        # Should still be an AsyncFunctionDef
+        self.assertIsInstance(result, ast.AsyncFunctionDef)
+
+        # Body should be unchanged (no import, no With wrapper)
+        self.assertEqual(len(result.body), 1)
+        self.assertIsInstance(result.body[0], ast.Assign)
+
+    def test_sync_and_async_functions_both_wrapped(self):
+        """Test that both sync and async functions can be wrapped by same replacer."""
+        replacer = DynamicReplacer(
+            _fullname="test.mixed",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'sync_method',
+                    'start_line': 10,
+                    'end_line': 10,
+                    'context_class': 'test.sync.SyncContext',
+                    'context_values': []
+                },
+                {
+                    'function': 'async_method',
+                    'start_line': 10,
+                    'end_line': 10,
+                    'context_class': 'test.async_mod.AsyncContext',
+                    'context_values': []
+                }
+            ]
+        )
+
+        # Create sync function
+        sync_method = ast.FunctionDef(
+            name="sync_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="x", ctx=ast.Store())],
+                    value=ast.Constant(value=1),
+                    lineno=10
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+
+        # Create async function
+        async_method = ast.AsyncFunctionDef(
+            name="async_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                ast.Assign(
+                    targets=[ast.Name(id="y", ctx=ast.Store())],
+                    value=ast.Constant(value=2),
+                    lineno=10
+                ),
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=9
+        )
+
+        # Visit both
+        sync_result = replacer.visit_FunctionDef(sync_method)
+        async_result = replacer.visit_AsyncFunctionDef(async_method)
+
+        # Sync should be wrapped with SyncContext
+        self.assertIsInstance(sync_result, ast.FunctionDef)
+        sync_imports = [s for s in sync_result.body if isinstance(s, ast.ImportFrom)]
+        self.assertEqual(len(sync_imports), 1)
+        self.assertEqual(sync_imports[0].module, "test.sync")
+        self.assertEqual(sync_imports[0].names[0].name, "SyncContext")
+
+        # Async should be wrapped with AsyncContext
+        self.assertIsInstance(async_result, ast.AsyncFunctionDef)
+        async_imports = [s for s in async_result.body if isinstance(s, ast.ImportFrom)]
+        self.assertEqual(len(async_imports), 1)
+        self.assertEqual(async_imports[0].module, "test.async_mod")
+        self.assertEqual(async_imports[0].names[0].name, "AsyncContext")
+
+
 if __name__ == '__main__':
     unittest.main()

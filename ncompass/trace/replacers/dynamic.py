@@ -17,7 +17,7 @@ Description: Replacer classes for AST rewriting.
 """
 
 import ast
-from typing import List, Optional, cast
+from typing import List, Optional, Union, cast
 from dataclasses import dataclass, field
 
 from ncompass.trace.infra.utils import logger
@@ -55,16 +55,16 @@ class DynamicReplacerImpl:
     
     def _handle_method_transplants(self, node: ast.ClassDef) -> None:
         """Handle method transplants by replacing methods with wrappers.
-        
+
         Modifies node.body in place.
         """
         repl_map = self.class_func_replacements.get(node.name, {})  # type: ignore[attr-defined]
         if not repl_map:
             return
-        
+
         new_body: List[ast.stmt] = []
         for stmt in node.body:
-            if isinstance(stmt, ast.FunctionDef) and stmt.name in repl_map:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name in repl_map:
                 decorators = {d.id for d in stmt.decorator_list if isinstance(d, ast.Name)}
                 if "staticmethod" in decorators:
                     kind = "static"
@@ -89,7 +89,7 @@ class DynamicReplacerImpl:
         
         new_body = []
         for stmt in node.body:
-            if isinstance(stmt, ast.FunctionDef) and stmt.name in context_wrappings:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name in context_wrappings:
                 # Transform the function body to wrap specified calls with contexts
                 wrapper_config = context_wrappings[stmt.name]
                 stmt = self._wrap_function_calls_with_context(stmt, wrapper_config)
@@ -97,7 +97,7 @@ class DynamicReplacerImpl:
             new_body.append(stmt)
         node.body = new_body
 
-    def _wrap_function_calls_with_context(self, func_node: ast.FunctionDef, config: dict) -> ast.FunctionDef:
+    def _wrap_function_calls_with_context(self, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef], config: dict) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
         """Transform function body to wrap specified calls with context managers."""
         wrap_calls = config['wrap_calls']
         
@@ -123,7 +123,7 @@ class DynamicReplacerImpl:
             level=0
         )
 
-    def _wrap_function_line_ranges_with_context(self, func_node: ast.FunctionDef, wrap_configs: List[dict]) -> ast.FunctionDef:
+    def _wrap_function_line_ranges_with_context(self, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef], wrap_configs: List[dict]) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
         """Transform function body to wrap specified line ranges with context managers.
         
         Processes from innermost to outermost range for proper nesting support.
@@ -797,16 +797,24 @@ class DynamicReplacer(ReplacerBase, DynamicReplacerImpl):
         
         return self.generic_visit(node)
     
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        """Handle function line range wrapping for both methods and top-level functions."""
-        # Find all line range configs that target this function
+    def _visit_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> ast.AST:
+        """Shared logic for function line range wrapping (sync and async)."""
         matching_configs = [
             config for config in self.func_line_range_wrappings
             if config.get('function') == node.name
         ]
-        
+
         if matching_configs:
-            logger.debug(f"[LINE_RANGE_WRAPPING] Processing function: {node.name} with {len(matching_configs)} configs")
+            func_type = "async function" if isinstance(node, ast.AsyncFunctionDef) else "function"
+            logger.debug(f"[LINE_RANGE_WRAPPING] Processing {func_type}: {node.name} with {len(matching_configs)} configs")
             node = self._wrap_function_line_ranges_with_context(node, matching_configs)
-        
+
         return self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+        """Handle function line range wrapping for sync functions."""
+        return self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
+        """Handle function line range wrapping for async functions."""
+        return self._visit_function(node)
