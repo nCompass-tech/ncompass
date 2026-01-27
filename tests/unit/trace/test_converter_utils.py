@@ -629,8 +629,8 @@ class TestProcessChromeTraceFile(unittest.TestCase):
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_process_trace_creates_processed_gz_and_preserves_metadata(self):
-        """Processing should move overlaps and keep metadata fields."""
+    def test_process_trace_creates_backup_and_preserves_metadata(self):
+        """Processing should move overlaps, keep metadata fields, and create backup."""
         input_path = os.path.join(self.temp_dir, "input.json")
         trace_data = {
             "displayTimeUnit": "ns",
@@ -644,10 +644,16 @@ class TestProcessChromeTraceFile(unittest.TestCase):
 
         processed_path = process_chrome_trace_file(input_path)
 
-        self.assertTrue(processed_path.endswith(".processed.json.gz"))
+        # Function returns the original path (which now contains processed content)
+        self.assertEqual(processed_path, input_path)
         self.assertTrue(os.path.exists(processed_path))
 
-        with gzip.open(processed_path, 'rt', encoding='utf-8') as f:
+        # Backup should exist at input_path + '.bkup'
+        backup_path = input_path + '.bkup'
+        self.assertTrue(os.path.exists(backup_path))
+
+        # Read processed file (regular JSON, not gzipped)
+        with open(processed_path, 'r', encoding='utf-8') as f:
             processed = json.load(f)
 
         self.assertEqual(processed.get("displayTimeUnit"), "ns")
