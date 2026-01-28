@@ -2251,6 +2251,253 @@ class TestStatementFlattening(unittest.TestCase):
         top_level_withs = [stmt for stmt in non_import_stmts if isinstance(stmt, ast.With)]
         self.assertEqual(len(top_level_withs), 0, "For loop should not be wrapped at top level")
 
+    def test_wrap_all_children_of_with_via_overlap_no_duplicate_nested_statements(self):
+        """Test that wrapping all children of a with statement via overlap doesn't duplicate nested statements.
+
+        This tests the bug fix for the scenario where:
+        - with statement at line 10 (not in wrap range directly)
+        - if statement at line 11 (first child of with, in wrap range)
+        - statements inside if.body and if.orelse (nested in wrap range)
+        - wrap range is 11-22 (covers all children but not the with header)
+
+        The bug was: nested statements inside if.body and if.orelse were being duplicated
+        in the wrapper's body, causing them to execute unconditionally regardless of the
+        if condition. This caused "too many values to unpack" errors in vLLM when wrapping
+        postprocess sections.
+
+        Expected behavior:
+        - The with statement should be wrapped entirely (because all its children are in range)
+        - Nested statements should NOT be duplicated outside the if/else structure
+        """
+        replacer = DynamicReplacer(
+            _fullname="test.overlap_nested",
+            _class_replacements={},
+            _class_func_replacements={},
+            _func_line_range_wrappings=[
+                {
+                    'function': 'test_method',
+                    'start_line': 11,  # First child of with
+                    'end_line': 22,    # Lines outside the with
+                    'context_class': 'profiler.CudaProfilerContext',
+                    'context_values': [{'name': 'name', 'value': 'test_region', 'type': 'literal'}]
+                }
+            ]
+        )
+
+        # Create a function with a with statement containing an if/else
+        # This mimics the vLLM gpu_model_runner structure
+        test_method = ast.FunctionDef(
+            name="test_method",
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[ast.arg(arg="self", annotation=None)],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[
+                # Line 5: model_output = self._model_forward()
+                ast.Assign(
+                    targets=[ast.Name(id="model_output", ctx=ast.Store())],
+                    value=ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(id="self", ctx=ast.Load()),
+                            attr="_model_forward",
+                            ctx=ast.Load()
+                        ),
+                        args=[],
+                        keywords=[]
+                    ),
+                    lineno=5
+                ),
+                # Line 10: with record_function_or_nullcontext("postprocess"):
+                (with_stmt := ast.With(
+                    items=[
+                        ast.withitem(
+                            context_expr=ast.Call(
+                                func=ast.Name(id="record_function_or_nullcontext", ctx=ast.Load()),
+                                args=[ast.Constant(value="postprocess")],
+                                keywords=[]
+                            )
+                        )
+                    ],
+                    body=[
+                        # Line 11: if self.use_aux_hidden_state_outputs:
+                        (if_stmt := ast.If(
+                            test=ast.Attribute(
+                                value=ast.Name(id="self", ctx=ast.Load()),
+                                attr="use_aux_hidden_state_outputs",
+                                ctx=ast.Load()
+                            ),
+                            body=[
+                                # Line 12: hidden_states, aux_hidden_states = model_output
+                                ast.Assign(
+                                    targets=[
+                                        ast.Tuple(
+                                            elts=[
+                                                ast.Name(id="hidden_states", ctx=ast.Store()),
+                                                ast.Name(id="aux_hidden_states", ctx=ast.Store())
+                                            ],
+                                            ctx=ast.Store()
+                                        )
+                                    ],
+                                    value=ast.Name(id="model_output", ctx=ast.Load()),
+                                    lineno=12
+                                )
+                            ],
+                            orelse=[
+                                # Line 14: hidden_states = model_output
+                                ast.Assign(
+                                    targets=[ast.Name(id="hidden_states", ctx=ast.Store())],
+                                    value=ast.Name(id="model_output", ctx=ast.Load()),
+                                    lineno=14
+                                ),
+                                # Line 15: aux_hidden_states = None
+                                ast.Assign(
+                                    targets=[ast.Name(id="aux_hidden_states", ctx=ast.Store())],
+                                    value=ast.Constant(value=None),
+                                    lineno=15
+                                )
+                            ],
+                            lineno=11
+                        )),
+                        # Line 17: if not self.broadcast_pp_output:
+                        ast.If(
+                            test=ast.UnaryOp(
+                                op=ast.Not(),
+                                operand=ast.Attribute(
+                                    value=ast.Name(id="self", ctx=ast.Load()),
+                                    attr="broadcast_pp_output",
+                                    ctx=ast.Load()
+                                )
+                            ),
+                            body=[
+                                # Line 18: return hidden_states
+                                ast.Return(
+                                    value=ast.Name(id="hidden_states", ctx=ast.Load()),
+                                    lineno=18
+                                )
+                            ],
+                            orelse=[],
+                            lineno=17
+                        )
+                    ],
+                    lineno=10
+                )),
+                # Line 21: self.execute_model_state = hidden_states (outside the with)
+                ast.Assign(
+                    targets=[
+                        ast.Attribute(
+                            value=ast.Name(id="self", ctx=ast.Load()),
+                            attr="execute_model_state",
+                            ctx=ast.Store()
+                        )
+                    ],
+                    value=ast.Name(id="hidden_states", ctx=ast.Load()),
+                    lineno=21
+                ),
+                # Line 22: self.result = aux_hidden_states (outside the with)
+                ast.Assign(
+                    targets=[
+                        ast.Attribute(
+                            value=ast.Name(id="self", ctx=ast.Load()),
+                            attr="result",
+                            ctx=ast.Store()
+                        )
+                    ],
+                    value=ast.Name(id="aux_hidden_states", ctx=ast.Load()),
+                    lineno=22
+                ),
+                # Line 23: return None
+                ast.Return(
+                    value=ast.Constant(value=None),
+                    lineno=23
+                )
+            ],
+            decorator_list=[],
+            returns=None,
+            lineno=1
+        )
+
+        # Set end_lineno for compound statements
+        with_stmt.end_lineno = 19
+        if_stmt.end_lineno = 15
+
+        class_node = ast.ClassDef(
+            name="TestClass",
+            bases=[],
+            keywords=[],
+            decorator_list=[],
+            body=[test_method]
+        )
+
+        result = replacer.visit_ClassDef(class_node)
+        modified_method = result.body[0]
+
+        # Get non-import statements
+        non_import_stmts = [stmt for stmt in modified_method.body if not isinstance(stmt, ast.ImportFrom)]
+
+        # Find the outer wrapper (CudaProfilerContext)
+        outer_wrapper = None
+        for stmt in non_import_stmts:
+            if isinstance(stmt, ast.With):
+                # Check if it's the CudaProfilerContext wrapper
+                context_expr = stmt.items[0].context_expr
+                if isinstance(context_expr, ast.Call) and isinstance(context_expr.func, ast.Name):
+                    if context_expr.func.id == "CudaProfilerContext":
+                        outer_wrapper = stmt
+                        break
+
+        self.assertIsNotNone(outer_wrapper, "Should have CudaProfilerContext wrapper")
+
+        # The wrapper's body should contain:
+        # 1. The original with statement (record_function_or_nullcontext)
+        # 2. The two assign statements from outside the original with (self.execute_model_state and self.result)
+        # It should NOT contain duplicated assignments from inside the if/else
+
+        # Count how many Assign statements are directly in the wrapper body
+        # (not inside the nested with or if statements)
+        direct_assigns_in_wrapper = [
+            stmt for stmt in outer_wrapper.body
+            if isinstance(stmt, ast.Assign)
+        ]
+
+        # Should be exactly 2 assigns (the ones outside the original with)
+        self.assertEqual(
+            len(direct_assigns_in_wrapper), 2,
+            f"Wrapper body should have exactly 2 direct Assign statements (from outside original with), "
+            f"but found {len(direct_assigns_in_wrapper)}. "
+            f"This indicates nested statements are being incorrectly duplicated."
+        )
+
+        # Verify the nested with statement is preserved and contains the if/else
+        nested_withs = [stmt for stmt in outer_wrapper.body if isinstance(stmt, ast.With)]
+        self.assertEqual(len(nested_withs), 1, "Should have one nested with statement")
+
+        inner_with = nested_withs[0]
+        # Check that the inner with's body contains the if statement
+        inner_if_stmts = [stmt for stmt in inner_with.body if isinstance(stmt, ast.If)]
+        self.assertEqual(len(inner_if_stmts), 2, "Inner with should have two if statements")
+
+        # Verify the if/else structure is intact
+        first_if = inner_if_stmts[0]
+        self.assertEqual(len(first_if.body), 1, "First if body should have 1 statement (tuple unpacking)")
+        self.assertEqual(len(first_if.orelse), 2, "First if orelse should have 2 statements")
+
+        # Verify the tuple unpacking is only in the if body, not duplicated
+        tuple_unpacking_count = 0
+        for stmt in outer_wrapper.body:
+            if isinstance(stmt, ast.Assign):
+                if isinstance(stmt.targets[0], ast.Tuple):
+                    tuple_unpacking_count += 1
+
+        self.assertEqual(
+            tuple_unpacking_count, 0,
+            "Tuple unpacking should NOT appear directly in wrapper body - it should only be in the if branch"
+        )
+
 
 class TestAsyncMethodTransplants(unittest.TestCase):
     """Test cases for async method transplant (replacement) functionality."""

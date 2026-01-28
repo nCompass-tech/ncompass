@@ -32,9 +32,9 @@ from ncompass.profile.config import config
 class NcuDefaults:
     """Default ncu arguments for ncompass profiling."""
 
-    target_processes: str = "all"
-    nvtx_include: str     = "regex:user_annotated:.*/"
-    clock_control: str    = "none"
+    target_processes: str   = "all"
+    profile_from_start: str = "off"
+    clock_control: str      = "none"
 
     def to_dict(self) -> dict[str, str]:
         """Convert to dictionary with ncu argument format (--key).
@@ -43,9 +43,9 @@ class NcuDefaults:
         in _build_ncu_command since they don't take values.
         """
         return {
-            "--target-processes": self.target_processes,
-            "--nvtx-include":     self.nvtx_include,
-            "--clock-control":    self.clock_control,
+            "--target-processes":   self.target_processes,
+            "--profile-from-start": self.profile_from_start,
+            "--clock-control":      self.clock_control,
         }
 
 

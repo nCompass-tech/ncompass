@@ -185,6 +185,38 @@ class DynamicReplacerImpl:
         func_node.body = context_imports + func_node.body
         return func_node
 
+    def _has_ancestor_in_set(self, stmt_metadata: List[dict], idx: int, ancestor_set: set) -> bool:
+        """Check if the statement at idx has any ancestor (at any nesting level) in ancestor_set.
+
+        This is used to skip nested descendants when wrapping a compound statement entirely.
+        For example, if we're wrapping a `with` statement entirely, we need to skip not just
+        its direct children, but also grandchildren (statements inside `if` blocks inside the `with`).
+
+        Args:
+            stmt_metadata: Full metadata list
+            idx: Index of the statement to check
+            ancestor_set: Set of compound statements to check against
+
+        Returns:
+            True if any ancestor of the statement is in ancestor_set
+        """
+        meta = stmt_metadata[idx]
+        parent = meta.get('parent')
+
+        while parent is not None:
+            if parent in ancestor_set:
+                return True
+            # Find the parent's metadata to get its parent
+            for other_meta in stmt_metadata:
+                if other_meta.get('stmt') is parent:
+                    parent = other_meta.get('parent')
+                    break
+            else:
+                # Parent not found in metadata, stop searching
+                break
+
+        return False
+
     def _build_statement_metadata(self, statements: List[ast.stmt], parent: Optional[ast.stmt] = None, parent_body_index: Optional[int] = None, top_level_index: Optional[int] = None) -> List[dict]:
         """Build metadata for statements, recursively flattening compound statements to atomic statements.
         
@@ -435,9 +467,11 @@ class DynamicReplacerImpl:
             
             meta = stmt_metadata[idx]
             parent = meta.get('parent')
-            
+
             # Skip if inside a compound statement we're wrapping entirely
-            if parent in processed_compound_stmts:
+            # This must check ALL ancestors, not just the immediate parent,
+            # to handle nested structures (e.g., statements inside an if that's inside a with)
+            if self._has_ancestor_in_set(stmt_metadata, idx, processed_compound_stmts):
                 continue
             
             # Add the compound statement itself if we're wrapping it entirely
