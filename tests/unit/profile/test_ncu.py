@@ -220,7 +220,7 @@ class TestNcuDefaults(unittest.TestCase):
         d = defaults.to_dict()
 
         self.assertEqual(d["--target-processes"], "all")
-        self.assertIn("--nvtx-include", d)
+        self.assertEqual(d["--profile-from-start"], "off")
         self.assertEqual(d["--clock-control"], "none")
 
 
