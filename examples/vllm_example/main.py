@@ -60,8 +60,7 @@ def run_vllm_inference(model_name: str, use_nvtx: bool = False) -> None:
         max_tokens=50
     )
 
-    with nvtx.annotate(message="ncompass_nsys_range"):
-        outputs = llm.generate([test_prompt], sampling_params)
+    outputs = llm.generate([test_prompt], sampling_params)
 
     try:
         logger.info(f"Test Prompt: {test_prompt}")
