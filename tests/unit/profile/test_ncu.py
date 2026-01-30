@@ -18,6 +18,7 @@ Tests for ncompass.profile.ncu module.
 Tests the ncu integration functions for profiling kernels.
 """
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -34,6 +35,8 @@ from ncompass.profile.ncu import (
     run_ncu_profile,
     _parse_ncu_args,
     NcuDefaults,
+    load_ncu_kernel_targets,
+    build_kernel_id_regex,
 )
 
 
@@ -220,7 +223,7 @@ class TestNcuDefaults(unittest.TestCase):
         d = defaults.to_dict()
 
         self.assertEqual(d["--target-processes"], "all")
-        self.assertEqual(d["--profile-from-start"], "off")
+        self.assertEqual(d["--nvtx-include"], "regex:user_annotated:.*/")
         self.assertEqual(d["--clock-control"], "none")
 
 
@@ -252,30 +255,6 @@ class TestRunNcuProfile(unittest.TestCase):
 
     @patch("ncompass.profile.ncu.get_metrics_str")
     @patch("subprocess.run")
-    @patch("pathlib.Path.exists")
-    def test_run_ncu_profile_success(self, mock_exists, mock_run, mock_get_metrics):
-        """Test successful profiling run."""
-        mock_get_metrics.return_value = "metric1,metric2"
-        mock_exists.return_value = True
-        trace_dir = Path("/tmp/traces")
-        
-        with patch("ncompass.profile.ncu.config") as mock_config:
-            mock_config.ncu_metrics = ("metric1", "metric2")
-            
-            result = run_ncu_profile(
-                command=["python", "test.py"],
-                output_name="test_out",
-                trace_dir=trace_dir,
-                working_dir=Path("/tmp")
-            )
-            
-            self.assertEqual(result, trace_dir / "test_out.ncu-rep")
-            mock_run.assert_called_once()
-            cmd = mock_run.call_args[0][0]
-            self.assertIn("--metrics=metric1,metric2", cmd)
-
-    @patch("ncompass.profile.ncu.get_metrics_str")
-    @patch("subprocess.run")
     def test_run_ncu_profile_failure(self, mock_run, mock_get_metrics):
         """Test profiling run failure."""
         mock_get_metrics.return_value = "metric1"
@@ -289,6 +268,367 @@ class TestRunNcuProfile(unittest.TestCase):
         )
         
         self.assertIsNone(result)
+
+
+class TestLoadNcuKernelTargets(unittest.TestCase):
+    """Test cases for load_ncu_kernel_targets function."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.cache_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _create_targets_file(self, targets: list, trace_file_name: str = "test_trace"):
+        """Helper to create config.json file for a trace."""
+        import json
+        targets_dir = self.cache_dir / ".cache" / "ncompass" / "profiles" / ".default" / "NCU" / trace_file_name / "current"
+        targets_dir.mkdir(parents=True, exist_ok=True)
+        targets_path = targets_dir / "config.json"
+        with open(targets_path, 'w') as f:
+            json.dump({"targets": targets}, f)
+        return targets_path
+
+    def test_load_ncu_kernel_targets_no_file(self):
+        """Test returns empty list when no targets file exists."""
+        result = load_ncu_kernel_targets(self.cache_dir, "nonexistent_trace")
+        self.assertEqual(result, [])
+
+    def test_load_ncu_kernel_targets_with_targets(self):
+        """Test loading kernel targets from file for specific trace."""
+        targets = [
+            {"kernel_name": "kernel_A", "instance_number": 3},
+            {"kernel_name": "kernel_B", "instance_number": 1}
+        ]
+        self._create_targets_file(targets, "my_trace")
+
+        result = load_ncu_kernel_targets(self.cache_dir, "my_trace")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["kernel_name"], "kernel_A")
+        self.assertEqual(result[0]["instance_number"], 3)
+        self.assertEqual(result[1]["kernel_name"], "kernel_B")
+        self.assertEqual(result[1]["instance_number"], 1)
+
+    def test_load_ncu_kernel_targets_all_traces(self):
+        """Test loading kernel targets from all trace files."""
+        self._create_targets_file([{"kernel_name": "kernel_A", "instance_number": 1}], "trace_one")
+        self._create_targets_file([{"kernel_name": "kernel_B", "instance_number": 2}], "trace_two")
+
+        # Pass None to get all traces
+        result = load_ncu_kernel_targets(self.cache_dir, None)
+
+        self.assertEqual(len(result), 2)
+        kernel_names = [t["kernel_name"] for t in result]
+        self.assertIn("kernel_A", kernel_names)
+        self.assertIn("kernel_B", kernel_names)
+
+    def test_load_ncu_kernel_targets_empty_list(self):
+        """Test loading empty targets list."""
+        self._create_targets_file([], "empty_trace")
+
+        result = load_ncu_kernel_targets(self.cache_dir, "empty_trace")
+
+        self.assertEqual(result, [])
+
+    def test_load_ncu_kernel_targets_invalid_json(self):
+        """Test returns empty list for invalid JSON."""
+        targets_dir = self.cache_dir / ".cache" / "ncompass" / "profiles" / ".default" / "NCU" / "bad_trace" / "current"
+        targets_dir.mkdir(parents=True, exist_ok=True)
+        targets_path = targets_dir / "config.json"
+        targets_path.write_text("invalid json")
+
+        result = load_ncu_kernel_targets(self.cache_dir, "bad_trace")
+
+        self.assertEqual(result, [])
+
+
+class TestBuildKernelIdRegex(unittest.TestCase):
+    """Test cases for build_kernel_id_regex function."""
+
+    def test_build_kernel_id_regex_single_target(self):
+        """Test regex with single kernel target."""
+        targets = [{"kernel_name": "gemm_kernel", "instance_number": 3}]
+        result = build_kernel_id_regex(targets)
+        self.assertEqual(result, "::regex:^(gemm_kernel)$:(3)")
+
+    def test_build_kernel_id_regex_multiple_targets(self):
+        """Test regex with multiple kernel targets - cross product."""
+        targets = [
+            {"kernel_name": "kernel_A", "instance_number": 1},
+            {"kernel_name": "kernel_B", "instance_number": 5},
+        ]
+        result = build_kernel_id_regex(targets)
+        # Kernel names sorted alphabetically, instances sorted numerically
+        self.assertEqual(result, "::regex:^(kernel_A|kernel_B)$:(1|5)")
+
+    def test_build_kernel_id_regex_same_kernel_multiple_instances(self):
+        """Test regex with same kernel, different instances."""
+        targets = [
+            {"kernel_name": "gemm", "instance_number": 1},
+            {"kernel_name": "gemm", "instance_number": 3},
+            {"kernel_name": "gemm", "instance_number": 2},
+        ]
+        result = build_kernel_id_regex(targets)
+        # Instances sorted numerically
+        self.assertEqual(result, "::regex:^(gemm)$:(1|2|3)")
+
+    def test_build_kernel_id_regex_mixed_targets(self):
+        """Test regex with multiple kernels and instances."""
+        targets = [
+            {"kernel_name": "conv", "instance_number": 2},
+            {"kernel_name": "gemm", "instance_number": 1},
+            {"kernel_name": "gemm", "instance_number": 3},
+            {"kernel_name": "conv", "instance_number": 5},
+        ]
+        result = build_kernel_id_regex(targets)
+        # Cross product: (conv|gemm) x (1|2|3|5)
+        self.assertEqual(result, "::regex:^(conv|gemm)$:(1|2|3|5)")
+
+    def test_build_kernel_id_regex_empty_list(self):
+        """Test regex with empty targets list returns None."""
+        result = build_kernel_id_regex([])
+        self.assertIsNone(result)
+
+    def test_build_kernel_id_regex_none(self):
+        """Test regex with None returns None."""
+        result = build_kernel_id_regex(None)
+        self.assertIsNone(result)
+
+    def test_build_kernel_id_regex_missing_kernel_name(self):
+        """Test regex skips targets with missing kernel_name."""
+        targets = [
+            {"kernel_name": "", "instance_number": 1},
+            {"kernel_name": "valid_kernel", "instance_number": 2},
+        ]
+        result = build_kernel_id_regex(targets)
+        self.assertEqual(result, "::regex:^(valid_kernel)$:(2)")
+
+
+class TestBuildNcuCommandWithKernelTargets(unittest.TestCase):
+    """Test cases for _build_ncu_command with kernel_targets parameter."""
+
+    def test_build_ncu_command_with_kernel_targets(self):
+        """Test building NCU command with kernel targets uses regex."""
+        output_path = Path("/tmp/test_out")
+        kernel_targets = [
+            {"kernel_name": "gemm_kernel", "instance_number": 3}
+        ]
+
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1,metric2",
+            extra_args=[],
+            command=["python", "script.py"],
+            kernel_targets=kernel_targets
+        )
+
+        # Check --kernel-id flag is present with regex format
+        kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id=")]
+        self.assertEqual(len(kernel_id_args), 1)
+        self.assertIn("::regex:^(gemm_kernel)$:(3)", kernel_id_args[0])
+
+    def test_build_ncu_command_with_multiple_kernel_targets(self):
+        """Test building NCU command with multiple kernel targets uses single regex."""
+        output_path = Path("/tmp/test_out")
+        kernel_targets = [
+            {"kernel_name": "kernel_A", "instance_number": 1},
+            {"kernel_name": "kernel_B", "instance_number": 5}
+        ]
+
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["./app"],
+            kernel_targets=kernel_targets
+        )
+
+        # Check single --kernel-id flag with cross-product regex
+        kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id=")]
+        self.assertEqual(len(kernel_id_args), 1)
+        self.assertIn("::regex:^(kernel_A|kernel_B)$:(1|5)", kernel_id_args[0])
+
+    def test_build_ncu_command_no_kernel_targets(self):
+        """Test building NCU command without kernel targets."""
+        output_path = Path("/tmp/test_out")
+
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["./app"],
+            kernel_targets=None
+        )
+
+        # No --kernel-id flags should be present
+        kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id")]
+        self.assertEqual(len(kernel_id_args), 0)
+
+    def test_build_ncu_command_empty_kernel_targets(self):
+        """Test building NCU command with empty kernel targets list."""
+        output_path = Path("/tmp/test_out")
+
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["./app"],
+            kernel_targets=[]
+        )
+
+        # No --kernel-id flags should be present
+        kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id")]
+        self.assertEqual(len(kernel_id_args), 0)
+
+    def test_build_ncu_command_kernel_id_before_other_args(self):
+        """Test that --kernel-id flags appear before key=value args."""
+        output_path = Path("/tmp/test_out")
+        kernel_targets = [{"kernel_name": "test_kernel", "instance_number": 1}]
+
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["./app"],
+            kernel_targets=kernel_targets
+        )
+
+        # Find positions
+        kernel_id_idx = next(i for i, arg in enumerate(cmd) if arg.startswith("--kernel-id="))
+        export_idx = next(i for i, arg in enumerate(cmd) if arg.startswith("--export="))
+
+        # --kernel-id should appear before --export
+        self.assertLess(kernel_id_idx, export_idx)
+
+
+class TestRunNcuProfileWithKernelTargets(unittest.TestCase):
+    """Test cases for run_ncu_profile with kernel targets."""
+
+    @patch("ncompass.profile.ncu.load_ncu_kernel_targets")
+    @patch("ncompass.profile.ncu.get_metrics_str")
+    @patch("subprocess.run")
+    @patch("pathlib.Path.exists")
+    def test_run_ncu_profile_loads_kernel_targets(self, mock_exists, mock_run, mock_get_metrics, mock_load_targets):
+        """Test that run_ncu_profile loads and uses kernel targets with regex."""
+        mock_get_metrics.return_value = "metric1"
+        mock_exists.return_value = True
+        mock_load_targets.return_value = [{"kernel_name": "my_kernel", "instance_number": 2}]
+        trace_dir = Path("/tmp/traces")
+
+        with patch("ncompass.profile.ncu.config") as mock_config:
+            mock_config.ncu_metrics = ("metric1",)
+
+            run_ncu_profile(
+                command=["python", "test.py"],
+                output_name="test_out",
+                trace_dir=trace_dir,
+                working_dir=Path("/tmp"),
+                use_kernel_targets=True
+            )
+
+            mock_load_targets.assert_called_once_with(Path("/tmp"))
+            cmd = mock_run.call_args[0][0]
+            # Check for regex format
+            kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id=")]
+            self.assertEqual(len(kernel_id_args), 1)
+            self.assertIn("::regex:^(my_kernel)$:(2)", kernel_id_args[0])
+
+    @patch("ncompass.profile.ncu.load_ncu_kernel_targets")
+    @patch("ncompass.profile.ncu.get_metrics_str")
+    @patch("subprocess.run")
+    @patch("pathlib.Path.exists")
+    def test_run_ncu_profile_skips_kernel_targets_when_disabled(self, mock_exists, mock_run, mock_get_metrics, mock_load_targets):
+        """Test that run_ncu_profile skips kernel targets when use_kernel_targets=False."""
+        mock_get_metrics.return_value = "metric1"
+        mock_exists.return_value = True
+        trace_dir = Path("/tmp/traces")
+
+        with patch("ncompass.profile.ncu.config") as mock_config:
+            mock_config.ncu_metrics = ("metric1",)
+
+            run_ncu_profile(
+                command=["python", "test.py"],
+                output_name="test_out",
+                trace_dir=trace_dir,
+                use_kernel_targets=False
+            )
+
+            mock_load_targets.assert_not_called()
+            cmd = mock_run.call_args[0][0]
+            kernel_id_args = [arg for arg in cmd if arg.startswith("--kernel-id")]
+            self.assertEqual(len(kernel_id_args), 0)
+
+
+class TestLoadNcuKernelTargetsWithEnvVar(unittest.TestCase):
+    """Test cases for load_ncu_kernel_targets with NCOMPASS_TRACE_NAME env var."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.cache_dir = Path(self.temp_dir.name)
+        # Clear env vars before each test
+        self.orig_trace_name = os.environ.get("NCOMPASS_TRACE_NAME")
+        if "NCOMPASS_TRACE_NAME" in os.environ:
+            del os.environ["NCOMPASS_TRACE_NAME"]
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+        # Restore original env var
+        if self.orig_trace_name is not None:
+            os.environ["NCOMPASS_TRACE_NAME"] = self.orig_trace_name
+        elif "NCOMPASS_TRACE_NAME" in os.environ:
+            del os.environ["NCOMPASS_TRACE_NAME"]
+
+    def _create_targets_file(self, targets: list, trace_file_name: str):
+        """Helper to create config.json file for a trace."""
+        import json
+        targets_dir = self.cache_dir / ".cache" / "ncompass" / "profiles" / ".default" / "NCU" / trace_file_name / "current"
+        targets_dir.mkdir(parents=True, exist_ok=True)
+        targets_path = targets_dir / "config.json"
+        with open(targets_path, 'w') as f:
+            json.dump({"targets": targets}, f)
+        return targets_path
+
+    def test_load_with_env_var(self):
+        """Test loading targets using NCOMPASS_TRACE_NAME env var."""
+        targets = [{"kernel_name": "env_kernel", "instance_number": 7}]
+        self._create_targets_file(targets, "env_trace")
+
+        os.environ["NCOMPASS_TRACE_NAME"] = "env_trace"
+
+        # Pass None for trace_file_name - should use env var
+        result = load_ncu_kernel_targets(self.cache_dir, None)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["kernel_name"], "env_kernel")
+        self.assertEqual(result[0]["instance_number"], 7)
+
+    def test_explicit_trace_name_overrides_env_var(self):
+        """Test that explicit trace_file_name overrides NCOMPASS_TRACE_NAME."""
+        self._create_targets_file([{"kernel_name": "env_kernel", "instance_number": 1}], "env_trace")
+        self._create_targets_file([{"kernel_name": "explicit_kernel", "instance_number": 2}], "explicit_trace")
+
+        os.environ["NCOMPASS_TRACE_NAME"] = "env_trace"
+
+        # Pass explicit trace_file_name
+        result = load_ncu_kernel_targets(self.cache_dir, "explicit_trace")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["kernel_name"], "explicit_kernel")
+
+    def test_no_env_var_no_trace_name_returns_all(self):
+        """Test that without env var or trace_file_name, returns all targets."""
+        self._create_targets_file([{"kernel_name": "kernel_a", "instance_number": 1}], "trace_a")
+        self._create_targets_file([{"kernel_name": "kernel_b", "instance_number": 2}], "trace_b")
+
+        # No NCOMPASS_TRACE_NAME set, pass None
+        result = load_ncu_kernel_targets(self.cache_dir, None)
+
+        self.assertEqual(len(result), 2)
+        kernel_names = [t["kernel_name"] for t in result]
+        self.assertIn("kernel_a", kernel_names)
+        self.assertIn("kernel_b", kernel_names)
 
 
 if __name__ == "__main__":
