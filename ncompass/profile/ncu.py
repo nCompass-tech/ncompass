@@ -19,6 +19,8 @@ nCompass Profiling - Nsight Compute (ncu) integration.
 Provides functions for running ncu profiling on any command.
 """
 
+import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,21 +34,74 @@ from ncompass.profile.config import config
 class NcuDefaults:
     """Default ncu arguments for ncompass profiling."""
 
-    target_processes: str   = "all"
-    profile_from_start: str = "off"
-    clock_control: str      = "none"
+    target_processes: str = "all"
+    nvtx_include: str     = "regex:user_annotated:.*/"
+    clock_control: str    = "none"
 
     def to_dict(self) -> dict[str, str]:
-        """Convert to dictionary with ncu argument format (--key).
-
-        Note: Boolean flags (--nvtx, --force-overwrite) are handled separately
-        in _build_ncu_command since they don't take values.
-        """
+        """Convert to dictionary with ncu argument format (--key)."""
         return {
-            "--target-processes":   self.target_processes,
-            "--profile-from-start": self.profile_from_start,
-            "--clock-control":      self.clock_control,
+            "--target-processes": self.target_processes,
+            "--nvtx-include":     self.nvtx_include,
+            "--clock-control":    self.clock_control,
         }
+
+
+def load_ncu_kernel_targets(cache_dir: Optional[Path] = None, trace_file_name: Optional[str] = None) -> list[dict]:
+    """Load NCU kernel targets from profile config.
+
+    Reads the config.json file from the NCU profile directory.
+    Uses the same directory structure as injector profiles:
+    .cache/ncompass/profiles/{profile}/NCU/{trace_file}/current/config.json
+
+    Args:
+        cache_dir: Base directory containing .cache/ncompass/profiles.
+                   Defaults to current directory or NCOMPASS_CACHE_DIR env var.
+        trace_file_name: Specific trace file to load targets for.
+                        If None, tries NCOMPASS_TRACE_NAME env var first,
+                        then returns targets from all trace files combined.
+
+    Returns:
+        List of kernel target dicts with 'kernel_name' and 'instance_number' keys.
+        Empty list if no targets file exists.
+    """
+    if cache_dir is None:
+        # Try environment variable first, then current directory
+        cache_dir = Path(os.environ.get("NCOMPASS_CACHE_DIR", "."))
+
+    # If no trace_file_name provided, try NCOMPASS_TRACE_NAME env var
+    if trace_file_name is None:
+        trace_file_name = os.environ.get("NCOMPASS_TRACE_NAME")
+
+    ncu_base = cache_dir / ".cache" / "ncompass" / "profiles" / ".default" / "NCU"
+
+    if trace_file_name:
+        # Load targets for specific trace file
+        targets_path = ncu_base / trace_file_name / "current" / "config.json"
+        if not targets_path.exists():
+            return []
+        try:
+            with open(targets_path, 'r') as f:
+                data = json.load(f)
+            return data.get("targets", [])
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to load NCU kernel targets: {e}")
+            return []
+    else:
+        # Load targets from all trace files
+        all_targets = []
+        if ncu_base.exists():
+            for trace_dir in ncu_base.iterdir():
+                if trace_dir.is_dir():
+                    targets_path = trace_dir / "current" / "config.json"
+                    if targets_path.exists():
+                        try:
+                            with open(targets_path, 'r') as f:
+                                data = json.load(f)
+                            all_targets.extend(data.get("targets", []))
+                        except (json.JSONDecodeError, OSError):
+                            pass  # Skip corrupted files
+        return all_targets
 
 
 def check_ncu_available() -> bool:
@@ -63,6 +118,59 @@ def check_ncu_available() -> bool:
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+
+
+def build_kernel_id_regex(kernel_targets: list[dict]) -> Optional[str]:
+    """Build a single --kernel-id regex that matches all kernel targets.
+
+    NCU doesn't support multiple --kernel-id flags to target different
+    kernel/instance combinations. Instead, we build a single regex that
+    matches the cross-product of all kernel names and instance numbers.
+
+    Format: ::regex:^(kernel_a|kernel_b)$:(1|2|3)
+
+    This allows profiling multiple specific kernel instances in a single run.
+
+    Args:
+        kernel_targets: List of kernel targets, each with 'kernel_name' and
+                       'instance_number' keys.
+
+    Returns:
+        Kernel-id regex string for use with --kernel-id flag, or None if
+        no targets provided.
+
+    Example:
+        >>> targets = [
+        ...     {"kernel_name": "gemm", "instance_number": 1},
+        ...     {"kernel_name": "gemm", "instance_number": 3},
+        ...     {"kernel_name": "conv", "instance_number": 2},
+        ... ]
+        >>> build_kernel_id_regex(targets)
+        "::regex:^(conv|gemm)$:(1|2|3)"
+    """
+    if not kernel_targets:
+        return None
+
+    # Collect unique kernel names and instance numbers
+    kernel_names = set()
+    instance_numbers = set()
+
+    for target in kernel_targets:
+        kernel_name = target.get("kernel_name", "")
+        instance_number = target.get("instance_number", 1)
+        if kernel_name:
+            kernel_names.add(kernel_name)
+            instance_numbers.add(str(instance_number))
+
+    if not kernel_names or not instance_numbers:
+        return None
+
+    # Build regex pattern
+    # Format: ::regex:^(kernel1|kernel2)$:(1|2|3)
+    kernel_pattern = "|".join(sorted(kernel_names))
+    instance_pattern = "|".join(sorted(instance_numbers, key=int))
+
+    return f"::regex:^({kernel_pattern})$:({instance_pattern})"
 
 
 def _parse_ncu_args(args: list[str]) -> dict[str, str]:
@@ -158,16 +266,22 @@ def _build_ncu_command(
     metrics_str: str,
     extra_args: list[str],
     command: list[str],
+    kernel_targets: Optional[list[dict]] = None,
 ) -> list[str]:
     """Build the ncu profile command.
 
     Starts with defaults, then applies extra_args (which can override defaults).
+    If kernel_targets are provided, builds a single --kernel-id regex flag that
+    matches all specified kernel/instance combinations.
 
     Args:
         output_path: Path for output file (without extension)
         metrics_str: Comma-separated metrics string
         extra_args: Additional ncu arguments (can override defaults)
         command: The command to profile
+        kernel_targets: Optional list of kernel targets, each with 'kernel_name'
+                       and 'instance_number' keys. NCU will profile only these
+                       specific kernel instances using a cross-product regex.
 
     Returns:
         Complete ncu command as list of strings
@@ -185,6 +299,13 @@ def _build_ncu_command(
 
     # Build command - start with boolean flags (no value)
     cmd = ["ncu", "--nvtx", "--force-overwrite"]
+
+    # Add kernel targets if specified using cross-product regex
+    # NCU format: --kernel-id ::regex:^(kernel_a|kernel_b)$:(1|2)
+    if kernel_targets:
+        kernel_id_regex = build_kernel_id_regex(kernel_targets)
+        if kernel_id_regex:
+            cmd.append(f"--kernel-id={kernel_id_regex}")
 
     # Add key=value arguments
     for key, value in args_dict.items():
@@ -278,6 +399,7 @@ def run_ncu_profile(
     trace_dir: Path,
     working_dir: Optional[Path] = None,
     extra_args: Optional[list[str]] = None,
+    use_kernel_targets: bool = True,
 ) -> Optional[Path]:
     """Run ncu profile on any command.
 
@@ -285,10 +407,14 @@ def run_ncu_profile(
     through to ncu and can override the defaults.
 
     Default ncu arguments:
-        --nvtx (boolean flag)
         --force-overwrite (boolean flag)
         --target-processes=all
-        --nvtx-include=regex:user_annotated:.*/
+        --profile-from-start=off
+        --clock-control=none
+
+    If use_kernel_targets is True and kernel targets are configured in the
+    profile, only those specific kernel instances will be profiled using
+    NCU's --kernel-id flag.
 
     Args:
         command: Command and arguments to profile (e.g., ["python", "script.py"]).
@@ -296,6 +422,8 @@ def run_ncu_profile(
         trace_dir: Directory to store trace output.
         working_dir: Working directory for the command (defaults to current directory).
         extra_args: Additional ncu arguments (can override defaults).
+        use_kernel_targets: Whether to load and apply kernel targets from config.
+                           Set to False to profile all kernels. Defaults to True.
 
     Returns:
         Path to the generated .ncu-rep file, or None if profiling failed.
@@ -305,12 +433,22 @@ def run_ncu_profile(
     # Query available metrics and filter
     metrics_str = get_metrics_str(list(config.ncu_metrics))
 
+    # Load kernel targets if enabled
+    kernel_targets = None
+    if use_kernel_targets:
+        kernel_targets = load_ncu_kernel_targets(working_dir)
+        if kernel_targets:
+            logger.info(f"Using {len(kernel_targets)} kernel target(s) from profile config:")
+            for target in kernel_targets:
+                logger.info(f"  - {target.get('kernel_name')} (instance #{target.get('instance_number')})")
+
     # Build the ncu command
     cmd = _build_ncu_command(
         output_path=output_path,
         metrics_str=metrics_str,
         extra_args=extra_args or [],
         command=command,
+        kernel_targets=kernel_targets,
     )
 
     logger.info("Running ncu profile command:")
