@@ -24,6 +24,8 @@ from ncompass.profile.ncu import (
     run_ncu_profile,
     convert_ncu_to_csv,
     NcuDefaults,
+    load_ncu_kernel_targets,
+    build_kernel_id_regex,
 )
 
 __all__ = [
@@ -34,5 +36,7 @@ __all__ = [
     "run_ncu_profile",
     "convert_ncu_to_csv",
     "NcuDefaults",
+    "load_ncu_kernel_targets",
+    "build_kernel_id_regex",
 ]
 

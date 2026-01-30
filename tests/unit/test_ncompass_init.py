@@ -38,7 +38,8 @@ def _load_ncompass_init_components():
 
 
 # Reimplement the parsing logic for testing (mirrors ncompass_init.py)
-VALID_PROFILER_TYPES = ("NVTX", "Torch", "CudaProfiler")
+# "NCU" is a special type that requires NCOMPASS_TRACE_NAME to be set
+VALID_PROFILER_TYPES = ("NVTX", "Torch", "CudaProfiler", "NCU")
 PROFILER_ALIASES = {
     "NSYS": ["NVTX", "CudaProfiler"]
 }
@@ -143,9 +144,13 @@ class TestValidProfilerTypes(unittest.TestCase):
         """Test CudaProfiler is a valid profiler type."""
         self.assertIn("CudaProfiler", VALID_PROFILER_TYPES)
 
+    def test_valid_profiler_types_contains_ncu(self):
+        """Test NCU is a valid profiler type."""
+        self.assertIn("NCU", VALID_PROFILER_TYPES)
+
     def test_valid_profiler_types_count(self):
-        """Test there are exactly 3 valid profiler types."""
-        self.assertEqual(len(VALID_PROFILER_TYPES), 3)
+        """Test there are exactly 4 valid profiler types."""
+        self.assertEqual(len(VALID_PROFILER_TYPES), 4)
 
 
 class TestProfilerAliases(unittest.TestCase):
@@ -194,6 +199,34 @@ class TestProfilerTypeValidation(unittest.TestCase):
         # 'nvtx' (lowercase) should not be in valid types
         self.assertNotIn("nvtx", VALID_PROFILER_TYPES)
         self.assertNotIn("torch", VALID_PROFILER_TYPES)
+
+
+class TestNcuProfilerType(unittest.TestCase):
+    """Test cases for NCU profiler type."""
+
+    def test_parse_ncu_type(self):
+        """Test parsing NCU profiler type."""
+        result = _parse_profiler_types("NCU")
+        self.assertEqual(result, ["NCU"])
+
+    def test_ncu_in_valid_types(self):
+        """Test NCU is in valid profiler types."""
+        self.assertIn("NCU", VALID_PROFILER_TYPES)
+
+    def test_ncu_not_in_nsys_alias(self):
+        """Test NCU is not included in NSYS alias."""
+        self.assertNotIn("NCU", PROFILER_ALIASES["NSYS"])
+
+    def test_parse_ncu_with_other_types(self):
+        """Test parsing NCU combined with other types."""
+        result = _parse_profiler_types("NCU,NVTX")
+        self.assertEqual(result, ["NCU", "NVTX"])
+
+    def test_ncu_case_sensitive(self):
+        """Test NCU is uppercase (case sensitive)."""
+        # "ncu" (lowercase) should not be valid
+        self.assertNotIn("ncu", VALID_PROFILER_TYPES)
+        self.assertIn("NCU", VALID_PROFILER_TYPES)
 
 
 if __name__ == "__main__":
