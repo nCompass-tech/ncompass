@@ -3,6 +3,12 @@
 from .converter import NsysToChromeTraceConverter, convert_file, convert_nsys_report
 from .models import ChromeTraceEvent, ConversionOptions
 from .linker import link_user_annotation_to_kernels
+from .paths import (
+    DERIVED_FILES_DIR,
+    get_derived_dir,
+    get_derived_path,
+    ensure_derived_dir,
+)
 
 __all__ = [
     "NsysToChromeTraceConverter",
@@ -11,6 +17,10 @@ __all__ = [
     "ChromeTraceEvent",
     "ConversionOptions",
     "link_user_annotation_to_kernels",
+    "DERIVED_FILES_DIR",
+    "get_derived_dir",
+    "get_derived_path",
+    "ensure_derived_dir",
 ]
 
 __version__ = "0.1.0"

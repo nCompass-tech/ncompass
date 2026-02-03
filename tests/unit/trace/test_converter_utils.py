@@ -648,8 +648,9 @@ class TestProcessChromeTraceFile(unittest.TestCase):
         self.assertEqual(processed_path, input_path)
         self.assertTrue(os.path.exists(processed_path))
 
-        # Backup should exist at input_path + '.bkup'
-        backup_path = input_path + '.bkup'
+        # Backup should exist in the .nc_trace_cache directory
+        from ncompass.trace.converters.paths import get_derived_path
+        backup_path = str(get_derived_path(input_path, '.bkup'))
         self.assertTrue(os.path.exists(backup_path))
 
         # Read processed file (regular JSON, not gzipped)

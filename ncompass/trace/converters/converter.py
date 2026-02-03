@@ -473,8 +473,10 @@ def convert_nsys_report(
     
     # Python implementation (original code)
     # Determine SQLite file path
+    from .paths import get_derived_path, ensure_derived_dir
     if keep_sqlite:
-        sqlite_path = nsys_rep_file.with_suffix('.sqlite')
+        ensure_derived_dir(nsys_rep_path)
+        sqlite_path = get_derived_path(nsys_rep_path, '.sqlite')
     else:
         # Use temp file that will be cleaned up
         temp_dir = tempfile.gettempdir()
