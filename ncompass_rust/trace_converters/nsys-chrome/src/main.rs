@@ -57,7 +57,11 @@ fn main() -> anyhow::Result<()> {
     if args.input.ends_with(".nsys-rep") {
         // Convert .nsys-rep to SQLite using nsys CLI
         let sqlite_output = if args.keep_sqlite {
-            input_path.with_extension("sqlite")
+            // Store in hidden .nc_trace_cache directory
+            let parent = input_path.parent().unwrap_or(Path::new("."));
+            let hidden_dir = parent.join(".nc_trace_cache");
+            std::fs::create_dir_all(&hidden_dir).expect("Failed to create hidden directory");
+            hidden_dir.join(input_path.file_stem().unwrap()).with_extension("sqlite")
         } else {
             let temp_dir = tempfile::Builder::new()
                 .prefix("nsys-chrome-")
