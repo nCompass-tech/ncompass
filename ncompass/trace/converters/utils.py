@@ -313,8 +313,10 @@ def process_chrome_trace_file(input_path: str, output_path: Optional[str] = None
     """
     source_path = Path(input_path)
 
-    # Create backup if it doesn't exist
-    backup_path = Path(str(source_path) + '.bkup')
+    # Create backup in hidden directory if it doesn't exist
+    from .paths import get_derived_path, ensure_derived_dir
+    ensure_derived_dir(input_path)
+    backup_path = get_derived_path(input_path, '.bkup')
     if not backup_path.exists():
         shutil.copy2(source_path, backup_path)
 

@@ -158,30 +158,31 @@ class TestConvertNsysReportFileCleanup(unittest.TestCase):
     def test_convert_nsys_report_keep_sqlite(self, mock_write, mock_converter, mock_run):
         """Test that SQLite file is preserved when keep_sqlite=True."""
         mock_run.return_value = MagicMock(returncode=0)
-        
+
         mock_ctx = MagicMock()
         mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
         mock_ctx.__exit__ = MagicMock(return_value=False)
         mock_ctx.convert.return_value = {"traceEvents": []}
         mock_converter.return_value.set_sqlite_path.return_value.set_options.return_value = mock_ctx
-        
+
         # Capture the sqlite_path that would be used
         captured_sqlite_path = None
-        
+
         def capture_sqlite_path(path):
             nonlocal captured_sqlite_path
             captured_sqlite_path = path
             mock_result = MagicMock()
             mock_result.set_options.return_value = mock_ctx
             return mock_result
-        
+
         mock_converter.return_value.set_sqlite_path.side_effect = capture_sqlite_path
-        
+
         # Run with keep_sqlite=True
         convert_nsys_report(self.input_file, self.output_file, keep_sqlite=True, use_rust=False)
-        
-        # Verify that the sqlite path is next to the input file
-        expected_sqlite_path = str(Path(self.input_file).with_suffix('.sqlite'))
+
+        # Verify that the sqlite path is in the .nc_trace_cache directory
+        from ncompass.trace.converters.paths import get_derived_path
+        expected_sqlite_path = str(get_derived_path(self.input_file, '.sqlite'))
         self.assertEqual(captured_sqlite_path, expected_sqlite_path)
 
 
