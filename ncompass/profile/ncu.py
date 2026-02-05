@@ -328,8 +328,10 @@ def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path) -> None:
     """
     try:
         # Import the ncu-rep file and export as CSV
+        # --page raw outputs columnar format (metrics as columns, one row per kernel)
+        # Without it, NCU outputs row-based format (each metric as separate row)
         result = subprocess.run(
-            ["ncu", "--import", str(ncu_rep_path), "--csv"],
+            ["ncu", "--import", str(ncu_rep_path), "--csv", "--page", "raw"],
             capture_output=True,
             text=True,
             check=True,
