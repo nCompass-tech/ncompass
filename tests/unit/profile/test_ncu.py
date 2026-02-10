@@ -31,6 +31,8 @@ from ncompass.profile.ncu import (
     filter_available_metrics,
     _build_ncu_command,
     convert_ncu_to_csv,
+    convert_ncu_to_session,
+    convert_ncu_to_source,
     get_metrics_str,
     run_ncu_profile,
     _parse_ncu_args,
@@ -199,6 +201,109 @@ class TestConvertNcuToCsv(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             convert_ncu_to_csv(ncu_rep, output_csv)
         self.assertIn("No valid CSV data found", str(cm.exception))
+
+
+class TestConvertNcuToSession(unittest.TestCase):
+    """Test cases for convert_ncu_to_session function."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.working_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_session_success(self, mock_run):
+        """Test successful export of session info."""
+        session_text = "Device: NVIDIA H100\nCompute Capability: 9.0\n"
+        mock_run.return_value = MagicMock(returncode=0, stdout=session_text)
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.session"
+
+        convert_ncu_to_session(ncu_rep, output)
+
+        self.assertTrue(output.exists())
+        self.assertEqual(output.read_text(), session_text)
+
+        call_args = mock_run.call_args[0][0]
+        self.assertEqual(call_args, ["ncu", "--import", str(ncu_rep), "--page", "session"])
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_session_failure(self, mock_run):
+        """Test RuntimeError raised on subprocess failure."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "ncu", stderr="error")
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.session"
+
+        with self.assertRaises(RuntimeError) as cm:
+            convert_ncu_to_session(ncu_rep, output)
+        self.assertIn("session export failed", str(cm.exception))
+
+
+class TestConvertNcuToSource(unittest.TestCase):
+    """Test cases for convert_ncu_to_source function."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.working_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_source_sass(self, mock_run):
+        """Test successful export of SASS source."""
+        sass_text = "IMAD.MOV R1, RZ, RZ, c[0x0][0x28]\n"
+        mock_run.return_value = MagicMock(returncode=0, stdout=sass_text)
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.source.sass"
+
+        convert_ncu_to_source(ncu_rep, output, "sass")
+
+        self.assertTrue(output.exists())
+        self.assertEqual(output.read_text(), sass_text)
+
+        call_args = mock_run.call_args[0][0]
+        self.assertEqual(
+            call_args,
+            ["ncu", "--import", str(ncu_rep), "--page", "source", "--print-source", "sass"],
+        )
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_source_ptx(self, mock_run):
+        """Test successful export of PTX source."""
+        ptx_text = "mov.u32 %r1, %ctaid.x;\n"
+        mock_run.return_value = MagicMock(returncode=0, stdout=ptx_text)
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.source.ptx"
+
+        convert_ncu_to_source(ncu_rep, output, "ptx")
+
+        self.assertTrue(output.exists())
+        self.assertEqual(output.read_text(), ptx_text)
+
+        call_args = mock_run.call_args[0][0]
+        self.assertEqual(
+            call_args,
+            ["ncu", "--import", str(ncu_rep), "--page", "source", "--print-source", "ptx"],
+        )
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_source_failure(self, mock_run):
+        """Test RuntimeError raised on subprocess failure."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "ncu", stderr="error")
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.source.sass"
+
+        with self.assertRaises(RuntimeError) as cm:
+            convert_ncu_to_source(ncu_rep, output, "sass")
+        self.assertIn("source (sass) export failed", str(cm.exception))
 
 
 class TestParseNcuArgs(unittest.TestCase):
