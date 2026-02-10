@@ -366,6 +366,69 @@ def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path) -> None:
         raise RuntimeError(f"NCU CSV conversion failed: {e}")
 
 
+def convert_ncu_to_session(ncu_rep_path: Path, output_path: Path) -> None:
+    """Convert .ncu-rep file to session info text.
+
+    Exports device and launch configuration details using --page session.
+
+    Args:
+        ncu_rep_path: Path to the .ncu-rep file
+        output_path: Path to save session output
+    """
+    try:
+        result = subprocess.run(
+            ["ncu", "--import", str(ncu_rep_path), "--page", "session"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        with open(output_path, "w") as f:
+            f.write(result.stdout)
+
+        logger.info(f"Exported NCU session info: {output_path}")
+
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"NCU session export failed: {e.stderr}")
+    except Exception as e:
+        raise RuntimeError(f"NCU session export failed: {e}")
+
+
+def convert_ncu_to_source(
+    ncu_rep_path: Path, output_path: Path, source_type: str
+) -> None:
+    """Convert .ncu-rep file to source correlation text.
+
+    Exports source-correlated assembly using --page source.
+
+    Args:
+        ncu_rep_path: Path to the .ncu-rep file
+        output_path: Path to save source output
+        source_type: Source type to export ("sass" or "ptx")
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ncu", "--import", str(ncu_rep_path),
+                "--page", "source",
+                "--print-source", source_type,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        with open(output_path, "w") as f:
+            f.write(result.stdout)
+
+        logger.info(f"Exported NCU source ({source_type}): {output_path}")
+
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"NCU source ({source_type}) export failed: {e.stderr}")
+    except Exception as e:
+        raise RuntimeError(f"NCU source ({source_type}) export failed: {e}")
+
+
 def get_metrics_str(metrics_list: list[str], ncu_bin: str = "ncu") -> str:
     """Get the metrics string for the given metrics list.
 
