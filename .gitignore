@@ -240,3 +240,5 @@ CLAUDE.md
 examples/*/docker
 *ai-prompt.md
 *.bkup
+
+.nc_trace_cache
