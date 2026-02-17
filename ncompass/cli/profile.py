@@ -28,6 +28,8 @@ from ncompass.profile import (
     check_nsys_available,
     check_ncu_available,
     create_trace_directory,
+    detect_nsys_sudo_needed,
+    detect_ncu_sudo_needed,
     run_nsys_profile,
     run_ncu_profile,
     convert_ncu_to_csv,
@@ -120,6 +122,23 @@ Note:
         help="Auto-convert nsys report to Chrome trace format (.json.gz)",
     )
 
+    # Execution options
+    exec_group = parser.add_argument_group("Execution options")
+    sudo_group = exec_group.add_mutually_exclusive_group()
+    sudo_group.add_argument(
+        "--sudo",
+        action="store_true",
+        default=None,
+        dest="sudo",
+        help="Force running profiler commands with sudo",
+    )
+    sudo_group.add_argument(
+        "--no-sudo",
+        action="store_false",
+        dest="sudo",
+        help="Force running profiler commands without sudo",
+    )
+
     # Verbosity
     parser.add_argument(
         "--verbose",
@@ -149,10 +168,10 @@ def _configure_logging(args: argparse.Namespace) -> None:
         logger.setLevel(logging.INFO)
 
 
-def _check_profiler_availability(use_ncu: bool) -> bool:
+def _check_profiler_availability(use_ncu: bool, sudo: bool = False) -> bool:
     """Check if the required profiler (nsys or ncu) is available."""
     if use_ncu:
-        if not check_ncu_available():
+        if not check_ncu_available(sudo=sudo):
             logger.error(
                 "ncu command not found. Please ensure NVIDIA Nsight Compute is installed "
                 "and available in your PATH."
@@ -160,7 +179,7 @@ def _check_profiler_availability(use_ncu: bool) -> bool:
             logger.error("Download from: https://developer.nvidia.com/nsight-compute")
             return False
     else:
-        if not check_nsys_available():
+        if not check_nsys_available(sudo=sudo):
             logger.error(
                 "nsys command not found. Please ensure NVIDIA Nsight Systems is installed "
                 "and available in your PATH."
@@ -201,6 +220,7 @@ def _execute_ncu_session(
     trace_dir: Path,
     working_dir: Path,
     extra_args: list[str],
+    sudo: bool = False,
 ) -> int:
     """Execute an NCU profiling session."""
     logger.info("=" * 80)
@@ -209,6 +229,8 @@ def _execute_ncu_session(
     logger.info(f"  Command: {' '.join(user_command)}")
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
+    if sudo:
+        logger.info("  Sudo: enabled")
     if extra_args:
         logger.info(f"  Extra args: {' '.join(extra_args)}")
     logger.info("=" * 80)
@@ -219,6 +241,7 @@ def _execute_ncu_session(
         trace_dir=trace_dir,
         working_dir=working_dir,
         extra_args=extra_args,
+        sudo=sudo,
     )
 
     if ncu_rep_file is None:
@@ -253,6 +276,7 @@ def _execute_nsys_session(
     trace_dir: Path,
     working_dir: Path,
     extra_args: list[str],
+    sudo: bool = False,
 ) -> int:
     """Execute an nsys profiling session."""
     logger.info("=" * 80)
@@ -261,6 +285,8 @@ def _execute_nsys_session(
     logger.info(f"  Command: {' '.join(user_command)}")
     logger.info(f"  Output: {output_name}")
     logger.info(f"  Trace directory: {trace_dir}")
+    if sudo:
+        logger.info("  Sudo: enabled")
     if extra_args:
         logger.info(f"  Extra args: {' '.join(extra_args)}")
     logger.info("=" * 80)
@@ -271,6 +297,7 @@ def _execute_nsys_session(
         trace_dir=trace_dir,
         working_dir=working_dir,
         extra_args=extra_args,
+        sudo=sudo,
     )
 
     if nsys_rep_file is None:
@@ -338,14 +365,33 @@ def run_profile_command(args: argparse.Namespace) -> int:
     # Get user command and extra args from args (set by main.py after parsing)
     user_command: list[str] = getattr(args, "user_command", [])
     extra_args: list[str] = getattr(args, "extra_args", [])
+    sudo_flag = getattr(args, "sudo", None)
 
     # Validate command is provided
     if not user_command:
         logger.error("No command specified. Usage: ncompass profile --nsys|--ncu [options] -- <command>")
         return 1
 
+    # Resolve sudo: --sudo, --no-sudo, or auto-detect
+    if sudo_flag is True:
+        sudo = True
+        logger.info("Sudo: explicitly enabled via --sudo")
+    elif sudo_flag is False:
+        sudo = False
+        logger.info("Sudo: explicitly disabled via --no-sudo")
+    else:
+        # Auto-detect (default when neither --sudo nor --no-sudo passed)
+        profiler_name = "ncu" if args.ncu else "nsys"
+        logger.info(f"Checking if {profiler_name} requires sudo...")
+        if args.ncu:
+            sudo = detect_ncu_sudo_needed()
+        else:
+            sudo = detect_nsys_sudo_needed()
+        if sudo:
+            logger.info(f"Auto-detected: sudo is required for {profiler_name}")
+
     # Check profiler availability
-    if not _check_profiler_availability(args.ncu):
+    if not _check_profiler_availability(args.ncu, sudo=sudo):
         return 1
 
     # Determine paths and names
@@ -354,9 +400,11 @@ def run_profile_command(args: argparse.Namespace) -> int:
     # Run appropriate session
     if args.ncu:
         return _execute_ncu_session(
-            user_command, output_name, trace_dir, working_dir, extra_args
+            user_command, output_name, trace_dir, working_dir, extra_args,
+            sudo=sudo,
         )
     else:
         return _execute_nsys_session(
-            args, user_command, output_name, trace_dir, working_dir, extra_args
+            args, user_command, output_name, trace_dir, working_dir, extra_args,
+            sudo=sudo,
         )

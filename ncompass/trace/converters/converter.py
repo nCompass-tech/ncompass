@@ -367,6 +367,7 @@ def convert_nsys_report(
     options: ConversionOptions | None = None,
     keep_sqlite: bool = False,
     use_rust: bool = True,
+    sudo: bool = False,
 ) -> None:
     """Convert nsys report (.nsys-rep) to gzip-compressed Chrome Trace JSON.
     
@@ -491,7 +492,9 @@ def convert_nsys_report(
             "-o", str(sqlite_path),
             str(nsys_rep_file)
         ]
-        
+        if sudo:
+            export_command = ["sudo"] + export_command
+
         try:
             subprocess.run(export_command, check=True, capture_output=True, text=True)
         except FileNotFoundError:

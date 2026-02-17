@@ -57,15 +57,70 @@ class NsysDefaults:
         }
 
 
-def check_nsys_available() -> bool:
+def detect_nsys_sudo_needed() -> bool:
+    """Quick test to detect if nsys profiling requires sudo.
+
+    Runs a minimal nsys profile on the 'true' command to check if
+    elevated privileges are needed. Uses the same default trace settings
+    as actual profiling for an accurate test.
+
+    Returns:
+        True if sudo appears to be needed, False otherwise.
+    """
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_output = Path(tmpdir) / "ncompass_sudo_test"
+            cmd = _build_nsys_command(
+                output_path=test_output,
+                extra_args=["--sample", "none"],
+                command=["true"],
+                sudo=False,
+            )
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                return False
+
+            err = (result.stderr + result.stdout).lower()
+            permission_keywords = [
+                "permission",
+                "denied",
+                "privilege",
+                "not allowed",
+                "root",
+                "requires root",
+            ]
+            if any(kw in err for kw in permission_keywords):
+                logger.info("nsys requires elevated privileges for profiling")
+                return True
+
+            return False
+
+    except subprocess.TimeoutExpired:
+        logger.debug("nsys sudo detection timed out")
+        return False
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def check_nsys_available(sudo: bool = False) -> bool:
     """Check if nsys CLI is available in PATH.
+
+    Args:
+        sudo: If True, prepend sudo to the command.
 
     Returns:
         True if nsys is found and executable, False otherwise.
     """
     try:
+        cmd = ["nsys", "--version"]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            ["nsys", "--version"], capture_output=True, text=True, check=True
+            cmd, capture_output=True, text=True, check=True
         )
         logger.info(f"Found nsys: {result.stdout.strip()}")
         return True
@@ -124,6 +179,7 @@ def _build_nsys_command(
     output_path: Path,
     extra_args: list[str],
     command: list[str],
+    sudo: bool = False,
 ) -> list[str]:
     """Build the nsys profile command.
 
@@ -133,6 +189,7 @@ def _build_nsys_command(
         output_path: Path for output file (without extension)
         extra_args: Additional nsys arguments (can override defaults)
         command: The command to profile
+        sudo: If True, prepend sudo to the command.
 
     Returns:
         Complete nsys command as list of strings
@@ -155,6 +212,9 @@ def _build_nsys_command(
     # Add the user command
     cmd.extend(command)
 
+    if sudo:
+        cmd = ["sudo"] + cmd
+
     return cmd
 
 
@@ -164,6 +224,7 @@ def run_nsys_profile(
     trace_dir: Path,
     working_dir: Optional[Path] = None,
     extra_args: Optional[list[str]] = None,
+    sudo: bool = False,
 ) -> Optional[Path]:
     """Run nsys profile on any command.
 
@@ -188,6 +249,7 @@ def run_nsys_profile(
         trace_dir: Directory to store trace output.
         working_dir: Working directory for the command (defaults to current directory).
         extra_args: Additional nsys arguments (can override defaults).
+        sudo: If True, run nsys with sudo.
 
     Returns:
         Path to the generated .nsys-rep file, or None if profiling failed.
@@ -199,6 +261,7 @@ def run_nsys_profile(
         output_path=output_path,
         extra_args=extra_args or [],
         command=command,
+        sudo=sudo,
     )
 
     logger.info("Running nsys profile command:")

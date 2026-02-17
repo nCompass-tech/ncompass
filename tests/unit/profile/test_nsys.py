@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 from ncompass.profile.nsys import (
     check_nsys_available,
     create_trace_directory,
+    detect_nsys_sudo_needed,
     run_nsys_profile,
     NsysDefaults,
 )
@@ -48,6 +49,35 @@ class TestCheckNsysAvailable(unittest.TestCase):
         
         self.assertTrue(result)
         mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["nsys", "--version"])
+
+    @patch("subprocess.run")
+    def test_check_nsys_available_with_sudo(self, mock_run):
+        """Test check_nsys_available prepends sudo when sudo=True."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="NVIDIA Nsight Systems version 2023.4.1.97-234519059v0"
+        )
+
+        result = check_nsys_available(sudo=True)
+
+        self.assertTrue(result)
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["sudo", "nsys", "--version"])
+
+    @patch("subprocess.run")
+    def test_check_nsys_available_without_sudo(self, mock_run):
+        """Test check_nsys_available does not prepend sudo by default."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="NVIDIA Nsight Systems version 2023.4.1.97-234519059v0"
+        )
+
+        result = check_nsys_available(sudo=False)
+
+        self.assertTrue(result)
         call_args = mock_run.call_args
         self.assertEqual(call_args[0][0], ["nsys", "--version"])
 
@@ -320,21 +350,61 @@ class TestRunNsysProfileSuccess(unittest.TestCase):
     def test_run_nsys_profile_output_path(self, mock_run):
         """Test output path is correctly set in command."""
         mock_run.return_value = MagicMock(returncode=0)
-        
+
         expected_output = self.trace_dir / "test_output.nsys-rep"
         expected_output.touch()
-        
+
         run_nsys_profile(
             command=[str(self.script_path)],
             output_name="test_output",
             trace_dir=self.trace_dir,
             working_dir=self.script_path.parent,
         )
-        
+
         cmd = mock_run.call_args[0][0]
         output_arg = [arg for arg in cmd if arg.startswith("--output=")]
         self.assertEqual(len(output_arg), 1)
         self.assertIn("test_output", output_arg[0])
+
+    @patch("subprocess.run")
+    def test_run_nsys_profile_with_sudo(self, mock_run):
+        """Test run_nsys_profile prepends sudo to command when sudo=True."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        expected_output = self.trace_dir / "test_output.nsys-rep"
+        expected_output.touch()
+
+        run_nsys_profile(
+            command=[str(self.script_path)],
+            output_name="test_output",
+            trace_dir=self.trace_dir,
+            working_dir=self.script_path.parent,
+            sudo=True,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "sudo")
+        self.assertEqual(cmd[1], "nsys")
+        self.assertEqual(cmd[2], "profile")
+
+    @patch("subprocess.run")
+    def test_run_nsys_profile_without_sudo_default(self, mock_run):
+        """Test run_nsys_profile does not prepend sudo by default."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        expected_output = self.trace_dir / "test_output.nsys-rep"
+        expected_output.touch()
+
+        run_nsys_profile(
+            command=[str(self.script_path)],
+            output_name="test_output",
+            trace_dir=self.trace_dir,
+            working_dir=self.script_path.parent,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "nsys")
+        self.assertNotEqual(cmd[0], "sudo")
 
 
 class TestRunNsysProfileNegative(unittest.TestCase):
@@ -567,6 +637,87 @@ class TestNsysDefaults(unittest.TestCase):
         trace_value = d["--trace"]
         self.assertIn("cuda", trace_value)
         self.assertIn("nvtx", trace_value)
+
+
+class TestDetectNsysSudoNeeded(unittest.TestCase):
+    """Test cases for detect_nsys_sudo_needed function."""
+
+    @patch("subprocess.run")
+    def test_no_sudo_needed_when_profile_succeeds(self, mock_run):
+        """Test returns False when nsys profile succeeds without sudo."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = detect_nsys_sudo_needed()
+
+        self.assertFalse(result)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "nsys")
+        self.assertNotIn("sudo", cmd)
+
+    @patch("subprocess.run")
+    def test_sudo_needed_when_permission_denied(self, mock_run):
+        """Test returns True when nsys fails with permission error."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr="Error: Permission denied - requires root privileges",
+            stdout="",
+        )
+
+        result = detect_nsys_sudo_needed()
+
+        self.assertTrue(result)
+
+    @patch("subprocess.run")
+    def test_no_sudo_for_non_permission_error(self, mock_run):
+        """Test returns False when nsys fails with non-permission error."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr="Error: No CUDA devices found",
+            stdout="",
+        )
+
+        result = detect_nsys_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    def test_returns_false_when_nsys_not_found(self, mock_run):
+        """Test returns False when nsys is not installed."""
+        mock_run.side_effect = FileNotFoundError("nsys not found")
+
+        result = detect_nsys_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    def test_returns_false_on_timeout(self, mock_run):
+        """Test returns False when nsys test times out."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="nsys", timeout=15)
+
+        result = detect_nsys_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    def test_uses_sample_none_for_minimal_overhead(self, mock_run):
+        """Test that detection uses --sample=none to minimize test overhead."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        detect_nsys_sudo_needed()
+
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("--sample=none", cmd)
+
+    @patch("subprocess.run")
+    def test_profiles_true_command(self, mock_run):
+        """Test that detection profiles the 'true' command."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        detect_nsys_sudo_needed()
+
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("true", cmd)
 
 
 if __name__ == "__main__":

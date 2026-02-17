@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 
 from ncompass.profile.ncu import (
     check_ncu_available,
+    detect_ncu_sudo_needed,
     query_ncu_metrics,
     filter_available_metrics,
     _build_ncu_command,
@@ -57,6 +58,34 @@ class TestCheckNcuAvailable(unittest.TestCase):
         
         self.assertTrue(result)
         mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["ncu", "--version"])
+
+    @patch("subprocess.run")
+    def test_check_ncu_available_with_sudo(self, mock_run):
+        """Test check_ncu_available prepends sudo when sudo=True."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="NVIDIA (R) Nsight Compute Command Line Utility version 2023.1.1.0"
+        )
+
+        result = check_ncu_available(sudo=True)
+
+        self.assertTrue(result)
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["sudo", "ncu", "--version"])
+
+    @patch("subprocess.run")
+    def test_check_ncu_available_without_sudo(self, mock_run):
+        """Test check_ncu_available does not prepend sudo by default."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="NVIDIA (R) Nsight Compute Command Line Utility version 2023.1.1.0"
+        )
+
+        result = check_ncu_available(sudo=False)
+
+        self.assertTrue(result)
         call_args = mock_run.call_args
         self.assertEqual(call_args[0][0], ["ncu", "--version"])
 
@@ -97,12 +126,26 @@ class TestQueryNcuMetrics(unittest.TestCase):
         self.assertEqual(mock_run.call_args[0][0], ["ncu", "--query-metrics"])
 
     @patch("subprocess.run")
+    def test_query_ncu_metrics_with_sudo(self, mock_run):
+        """Test query_ncu_metrics prepends sudo when sudo=True."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="gpu__time_duration\n"
+        )
+
+        metrics = query_ncu_metrics(sudo=True)
+
+        self.assertEqual(metrics, {"gpu__time_duration"})
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd, ["sudo", "ncu", "--query-metrics"])
+
+    @patch("subprocess.run")
     def test_query_ncu_metrics_failure(self, mock_run):
         """Test failure in querying metrics returns empty set."""
         mock_run.side_effect = FileNotFoundError()
-        
+
         metrics = query_ncu_metrics()
-        
+
         self.assertEqual(metrics, set())
 
 
@@ -160,6 +203,33 @@ class TestBuildNcuCommand(unittest.TestCase):
         self.assertIn("--clock-control=base", cmd)
         self.assertNotIn("--target-processes=all", cmd)
 
+    def test_build_ncu_command_with_sudo(self):
+        """Test building NCU command with sudo prepended."""
+        output_path = Path("/tmp/test_out")
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["python", "script.py"],
+            sudo=True,
+        )
+
+        self.assertEqual(cmd[0], "sudo")
+        self.assertEqual(cmd[1], "ncu")
+
+    def test_build_ncu_command_without_sudo(self):
+        """Test building NCU command without sudo by default."""
+        output_path = Path("/tmp/test_out")
+        cmd = _build_ncu_command(
+            output_path=output_path,
+            metrics_str="metric1",
+            extra_args=[],
+            command=["python", "script.py"],
+        )
+
+        self.assertEqual(cmd[0], "ncu")
+        self.assertNotEqual(cmd[0], "sudo")
+
 
 class TestConvertNcuToCsv(unittest.TestCase):
     """Test cases for convert_ncu_to_csv function."""
@@ -187,6 +257,22 @@ class TestConvertNcuToCsv(unittest.TestCase):
         content = output_csv.read_text()
         self.assertIn('"ID","Process ID"', content)
         self.assertNotIn('Some random text', content)
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_csv_with_sudo(self, mock_run):
+        """Test convert_ncu_to_csv prepends sudo when sudo=True."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='Some random text\n"ID","Process ID","Other"\n"1","123","val"'
+        )
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output_csv = self.working_dir / "output.csv"
+
+        convert_ncu_to_csv(ncu_rep, output_csv, sudo=True)
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "sudo")
+        self.assertEqual(cmd[1], "ncu")
 
     @patch("subprocess.run")
     def test_convert_ncu_to_csv_no_csv_data(self, mock_run):
@@ -229,6 +315,21 @@ class TestConvertNcuToSession(unittest.TestCase):
 
         call_args = mock_run.call_args[0][0]
         self.assertEqual(call_args, ["ncu", "--import", str(ncu_rep), "--page", "session"])
+
+    @patch("subprocess.run")
+    def test_convert_ncu_to_session_with_sudo(self, mock_run):
+        """Test convert_ncu_to_session prepends sudo when sudo=True."""
+        session_text = "Device: NVIDIA H100\n"
+        mock_run.return_value = MagicMock(returncode=0, stdout=session_text)
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.session"
+
+        convert_ncu_to_session(ncu_rep, output, sudo=True)
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "sudo")
+        self.assertEqual(cmd[1], "ncu")
 
     @patch("subprocess.run")
     def test_convert_ncu_to_session_failure(self, mock_run):
@@ -294,6 +395,21 @@ class TestConvertNcuToSource(unittest.TestCase):
         )
 
     @patch("subprocess.run")
+    def test_convert_ncu_to_source_with_sudo(self, mock_run):
+        """Test convert_ncu_to_source prepends sudo when sudo=True."""
+        sass_text = "IMAD.MOV R1, RZ, RZ, c[0x0][0x28]\n"
+        mock_run.return_value = MagicMock(returncode=0, stdout=sass_text)
+
+        ncu_rep = self.working_dir / "test.ncu-rep"
+        output = self.working_dir / "test.source.sass"
+
+        convert_ncu_to_source(ncu_rep, output, "sass", sudo=True)
+
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "sudo")
+        self.assertEqual(cmd[1], "ncu")
+
+    @patch("subprocess.run")
     def test_convert_ncu_to_source_failure(self, mock_run):
         """Test RuntimeError raised on subprocess failure."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "ncu", stderr="error")
@@ -346,11 +462,21 @@ class TestGetMetricsStr(unittest.TestCase):
         self.assertEqual(result, "metric1.sum,metric2.avg")
 
     @patch("ncompass.profile.ncu.query_ncu_metrics")
+    def test_get_metrics_str_with_sudo(self, mock_query):
+        """Test get_metrics_str passes sudo to query_ncu_metrics."""
+        mock_query.return_value = {"metric1"}
+        metrics_list = ["metric1.sum"]
+
+        get_metrics_str(metrics_list, sudo=True)
+
+        mock_query.assert_called_once_with("ncu", sudo=True)
+
+    @patch("ncompass.profile.ncu.query_ncu_metrics")
     def test_get_metrics_str_no_valid_metrics(self, mock_query):
         """Test failure when no valid metrics are found."""
         mock_query.return_value = {"other"}
         metrics_list = ["metric1.sum"]
-        
+
         with self.assertRaises(ValueError):
             get_metrics_str(metrics_list)
 
@@ -365,14 +491,64 @@ class TestRunNcuProfile(unittest.TestCase):
         mock_get_metrics.return_value = "metric1"
         mock_run.side_effect = subprocess.CalledProcessError(1, "ncu")
         trace_dir = Path("/tmp/traces")
-        
+
         result = run_ncu_profile(
             command=["python", "test.py"],
             output_name="test_out",
             trace_dir=trace_dir
         )
-        
+
         self.assertIsNone(result)
+
+    @patch("ncompass.profile.ncu.load_ncu_kernel_targets")
+    @patch("ncompass.profile.ncu.get_metrics_str")
+    @patch("subprocess.run")
+    @patch("pathlib.Path.exists")
+    def test_run_ncu_profile_with_sudo(self, mock_exists, mock_run, mock_get_metrics, mock_load_targets):
+        """Test run_ncu_profile prepends sudo when sudo=True."""
+        mock_get_metrics.return_value = "metric1"
+        mock_exists.return_value = True
+        mock_load_targets.return_value = []
+        trace_dir = Path("/tmp/traces")
+
+        with patch("ncompass.profile.ncu.config") as mock_config:
+            mock_config.ncu_metrics = ("metric1",)
+
+            run_ncu_profile(
+                command=["python", "test.py"],
+                output_name="test_out",
+                trace_dir=trace_dir,
+                use_kernel_targets=True,
+                sudo=True,
+            )
+
+            cmd = mock_run.call_args[0][0]
+            self.assertEqual(cmd[0], "sudo")
+            self.assertEqual(cmd[1], "ncu")
+
+    @patch("ncompass.profile.ncu.load_ncu_kernel_targets")
+    @patch("ncompass.profile.ncu.get_metrics_str")
+    @patch("subprocess.run")
+    @patch("pathlib.Path.exists")
+    def test_run_ncu_profile_without_sudo_default(self, mock_exists, mock_run, mock_get_metrics, mock_load_targets):
+        """Test run_ncu_profile does not prepend sudo by default."""
+        mock_get_metrics.return_value = "metric1"
+        mock_exists.return_value = True
+        mock_load_targets.return_value = []
+        trace_dir = Path("/tmp/traces")
+
+        with patch("ncompass.profile.ncu.config") as mock_config:
+            mock_config.ncu_metrics = ("metric1",)
+
+            run_ncu_profile(
+                command=["python", "test.py"],
+                output_name="test_out",
+                trace_dir=trace_dir,
+                use_kernel_targets=True,
+            )
+
+            cmd = mock_run.call_args[0][0]
+            self.assertEqual(cmd[0], "ncu")
 
 
 class TestLoadNcuKernelTargets(unittest.TestCase):
@@ -734,6 +910,114 @@ class TestLoadNcuKernelTargetsWithEnvVar(unittest.TestCase):
         kernel_names = [t["kernel_name"] for t in result]
         self.assertIn("kernel_a", kernel_names)
         self.assertIn("kernel_b", kernel_names)
+
+
+class TestDetectNcuSudoNeeded(unittest.TestCase):
+    """Test cases for detect_ncu_sudo_needed function."""
+
+    @patch("ncompass.profile.ncu.Path")
+    def test_sudo_needed_when_proc_file_admin_only(self, mock_path_cls):
+        """Test returns True when RmProfilingAdminOnly=1 in proc file."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = True
+        mock_params.read_text.return_value = (
+            "SomeParam: 0\nRmProfilingAdminOnly: 1\nOtherParam: 42\n"
+        )
+        mock_path_cls.return_value = mock_params
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertTrue(result)
+
+    @patch("ncompass.profile.ncu.Path")
+    def test_no_sudo_when_proc_file_not_admin_only(self, mock_path_cls):
+        """Test returns False when RmProfilingAdminOnly=0 in proc file."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = True
+        mock_params.read_text.return_value = (
+            "SomeParam: 0\nRmProfilingAdminOnly: 0\nOtherParam: 42\n"
+        )
+        mock_path_cls.return_value = mock_params
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    @patch("ncompass.profile.ncu.Path")
+    def test_fallback_to_command_when_no_proc_file(self, mock_path_cls, mock_run):
+        """Test falls back to ncu --query-metrics when proc file missing."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = False
+        mock_path_cls.return_value = mock_params
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertFalse(result)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd, ["ncu", "--query-metrics"])
+
+    @patch("subprocess.run")
+    @patch("ncompass.profile.ncu.Path")
+    def test_sudo_needed_when_command_permission_denied(self, mock_path_cls, mock_run):
+        """Test returns True when ncu fails with permission error."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = False
+        mock_path_cls.return_value = mock_params
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr="ERR_NVGPUCTRPERM: Insufficient privileges",
+            stdout="",
+        )
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertTrue(result)
+
+    @patch("subprocess.run")
+    @patch("ncompass.profile.ncu.Path")
+    def test_no_sudo_for_non_permission_error(self, mock_path_cls, mock_run):
+        """Test returns False when ncu fails with non-permission error."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = False
+        mock_path_cls.return_value = mock_params
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr="Error: No CUDA devices detected",
+            stdout="",
+        )
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    @patch("ncompass.profile.ncu.Path")
+    def test_returns_false_when_ncu_not_found(self, mock_path_cls, mock_run):
+        """Test returns False when ncu is not installed."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = False
+        mock_path_cls.return_value = mock_params
+        mock_run.side_effect = FileNotFoundError("ncu not found")
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    @patch("ncompass.profile.ncu.Path")
+    def test_returns_false_on_timeout(self, mock_path_cls, mock_run):
+        """Test returns False when ncu test times out."""
+        mock_params = MagicMock()
+        mock_params.exists.return_value = False
+        mock_path_cls.return_value = mock_params
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="ncu", timeout=30)
+
+        result = detect_ncu_sudo_needed()
+
+        self.assertFalse(result)
 
 
 if __name__ == "__main__":
