@@ -104,15 +104,80 @@ def load_ncu_kernel_targets(cache_dir: Optional[Path] = None, trace_file_name: O
         return all_targets
 
 
-def check_ncu_available() -> bool:
+def detect_ncu_sudo_needed() -> bool:
+    """Quick test to detect if ncu profiling requires sudo.
+
+    First checks /proc/driver/nvidia/params for the RmProfilingAdminOnly
+    setting (instant, no subprocess). Falls back to running
+    ncu --query-metrics to test profiling permissions.
+
+    Returns:
+        True if sudo appears to be needed, False otherwise.
+    """
+    # Fast path: check NVIDIA driver params
+    try:
+        params_file = Path("/proc/driver/nvidia/params")
+        if params_file.exists():
+            content = params_file.read_text()
+            if "RmProfilingAdminOnly: 1" in content:
+                logger.info(
+                    "NVIDIA driver requires admin for profiling "
+                    "(RmProfilingAdminOnly=1)"
+                )
+                return True
+            if "RmProfilingAdminOnly: 0" in content:
+                return False
+    except OSError:
+        pass
+
+    # Fallback: try ncu --query-metrics
+    try:
+        cmd = ["ncu", "--query-metrics"]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return False
+
+        err = (result.stderr + result.stdout).lower()
+        permission_keywords = [
+            "permission",
+            "denied",
+            "privilege",
+            "not allowed",
+            "root",
+            "requires root",
+            "err_nvgpuctrperm",
+            "insufficient",
+        ]
+        if any(kw in err for kw in permission_keywords):
+            logger.info("ncu requires elevated privileges for profiling")
+            return True
+
+        return False
+
+    except subprocess.TimeoutExpired:
+        logger.debug("ncu sudo detection timed out")
+        return False
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def check_ncu_available(sudo: bool = False) -> bool:
     """Check if ncu CLI is available in PATH.
+
+    Args:
+        sudo: If True, prepend sudo to the command.
 
     Returns:
         True if ncu is found and executable, False otherwise.
     """
     try:
+        cmd = ["ncu", "--version"]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            ["ncu", "--version"], capture_output=True, text=True, check=True
+            cmd, capture_output=True, text=True, check=True
         )
         logger.info(f"Found ncu: {result.stdout.strip()}")
         return True
@@ -204,18 +269,22 @@ def _parse_ncu_args(args: list[str]) -> dict[str, str]:
     return parsed
 
 
-def query_ncu_metrics(ncu_bin: str = "ncu") -> set[str]:
+def query_ncu_metrics(ncu_bin: str = "ncu", sudo: bool = False) -> set[str]:
     """Query available base metrics from NCU.
 
     Args:
         ncu_bin: Path to ncu binary
+        sudo: If True, prepend sudo to the command.
 
     Returns:
         Set of available base metric names
     """
     try:
+        cmd = [ncu_bin, "--query-metrics"]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            [ncu_bin, "--query-metrics"],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -267,6 +336,7 @@ def _build_ncu_command(
     extra_args: list[str],
     command: list[str],
     kernel_targets: Optional[list[dict]] = None,
+    sudo: bool = False,
 ) -> list[str]:
     """Build the ncu profile command.
 
@@ -282,6 +352,7 @@ def _build_ncu_command(
         kernel_targets: Optional list of kernel targets, each with 'kernel_name'
                        and 'instance_number' keys. NCU will profile only these
                        specific kernel instances using a cross-product regex.
+        sudo: If True, prepend sudo to the command.
 
     Returns:
         Complete ncu command as list of strings
@@ -314,10 +385,13 @@ def _build_ncu_command(
     # Add the user command
     cmd.extend(command)
 
+    if sudo:
+        cmd = ["sudo"] + cmd
+
     return cmd
 
 
-def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path) -> None:
+def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path, sudo: bool = False) -> None:
     """Convert .ncu-rep file to CSV format.
 
     Uses ncu --import to read the report and output CSV.
@@ -325,13 +399,17 @@ def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path) -> None:
     Args:
         ncu_rep_path: Path to the .ncu-rep file
         output_csv: Path to save CSV output
+        sudo: If True, prepend sudo to the command.
     """
     try:
         # Import the ncu-rep file and export as CSV
         # --page raw outputs columnar format (metrics as columns, one row per kernel)
         # Without it, NCU outputs row-based format (each metric as separate row)
+        cmd = ["ncu", "--import", str(ncu_rep_path), "--csv", "--page", "raw"]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            ["ncu", "--import", str(ncu_rep_path), "--csv", "--page", "raw"],
+            cmd,
             capture_output=True,
             text=True,
             check=True,
@@ -366,7 +444,7 @@ def convert_ncu_to_csv(ncu_rep_path: Path, output_csv: Path) -> None:
         raise RuntimeError(f"NCU CSV conversion failed: {e}")
 
 
-def convert_ncu_to_session(ncu_rep_path: Path, output_path: Path) -> None:
+def convert_ncu_to_session(ncu_rep_path: Path, output_path: Path, sudo: bool = False) -> None:
     """Convert .ncu-rep file to session info text.
 
     Exports device and launch configuration details using --page session.
@@ -374,10 +452,14 @@ def convert_ncu_to_session(ncu_rep_path: Path, output_path: Path) -> None:
     Args:
         ncu_rep_path: Path to the .ncu-rep file
         output_path: Path to save session output
+        sudo: If True, prepend sudo to the command.
     """
     try:
+        cmd = ["ncu", "--import", str(ncu_rep_path), "--page", "session"]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            ["ncu", "--import", str(ncu_rep_path), "--page", "session"],
+            cmd,
             capture_output=True,
             text=True,
             check=True,
@@ -395,7 +477,7 @@ def convert_ncu_to_session(ncu_rep_path: Path, output_path: Path) -> None:
 
 
 def convert_ncu_to_source(
-    ncu_rep_path: Path, output_path: Path, source_type: str
+    ncu_rep_path: Path, output_path: Path, source_type: str, sudo: bool = False
 ) -> None:
     """Convert .ncu-rep file to source correlation text.
 
@@ -405,14 +487,18 @@ def convert_ncu_to_source(
         ncu_rep_path: Path to the .ncu-rep file
         output_path: Path to save source output
         source_type: Source type to export ("sass" or "ptx")
+        sudo: If True, prepend sudo to the command.
     """
     try:
+        cmd = [
+            "ncu", "--import", str(ncu_rep_path),
+            "--page", "source",
+            "--print-source", source_type,
+        ]
+        if sudo:
+            cmd = ["sudo"] + cmd
         result = subprocess.run(
-            [
-                "ncu", "--import", str(ncu_rep_path),
-                "--page", "source",
-                "--print-source", source_type,
-            ],
+            cmd,
             capture_output=True,
             text=True,
             check=True,
@@ -429,18 +515,19 @@ def convert_ncu_to_source(
         raise RuntimeError(f"NCU source ({source_type}) export failed: {e}")
 
 
-def get_metrics_str(metrics_list: list[str], ncu_bin: str = "ncu") -> str:
+def get_metrics_str(metrics_list: list[str], ncu_bin: str = "ncu", sudo: bool = False) -> str:
     """Get the metrics string for the given metrics list.
 
     Args:
         metrics_list: List of metrics
         ncu_bin: Path to ncu binary
+        sudo: If True, run ncu with sudo.
 
     Returns:
         Metrics string
     """
     logger.info("Querying available base metrics from NCU...")
-    available_base_metrics = query_ncu_metrics(ncu_bin)
+    available_base_metrics = query_ncu_metrics(ncu_bin, sudo=sudo)
 
     filtered_metrics, missing_metrics = filter_available_metrics(
         metrics_list, available_base_metrics
@@ -465,6 +552,7 @@ def run_ncu_profile(
     working_dir: Optional[Path] = None,
     extra_args: Optional[list[str]] = None,
     use_kernel_targets: bool = True,
+    sudo: bool = False,
 ) -> Optional[Path]:
     """Run ncu profile on any command.
 
@@ -489,6 +577,7 @@ def run_ncu_profile(
         extra_args: Additional ncu arguments (can override defaults).
         use_kernel_targets: Whether to load and apply kernel targets from config.
                            Set to False to profile all kernels. Defaults to True.
+        sudo: If True, run ncu with sudo.
 
     Returns:
         Path to the generated .ncu-rep file, or None if profiling failed.
@@ -496,7 +585,7 @@ def run_ncu_profile(
     output_path = trace_dir / output_name
 
     # Query available metrics and filter
-    metrics_str = get_metrics_str(list(config.ncu_metrics))
+    metrics_str = get_metrics_str(list(config.ncu_metrics), sudo=sudo)
 
     # Load kernel targets if enabled
     kernel_targets = None
@@ -514,6 +603,7 @@ def run_ncu_profile(
         extra_args=extra_args or [],
         command=command,
         kernel_targets=kernel_targets,
+        sudo=sudo,
     )
 
     logger.info("Running ncu profile command:")
