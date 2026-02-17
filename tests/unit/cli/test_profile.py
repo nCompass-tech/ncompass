@@ -123,13 +123,41 @@ class TestAddProfileParser(unittest.TestCase):
     def test_add_profile_parser_multiple_options(self):
         """Test multiple profile options can be combined."""
         add_profile_parser(self.subparsers)
-        
+
         args = self.parser.parse_args([
             "profile", "--nsys", "-v", "--convert", "-o", "output"
         ])
         self.assertTrue(args.verbose)
         self.assertTrue(args.convert)
         self.assertEqual(args.output, "output")
+
+    def test_add_profile_parser_sudo_flag(self):
+        """Test --sudo flag sets sudo to True."""
+        add_profile_parser(self.subparsers)
+
+        args = self.parser.parse_args(["profile", "--nsys", "--sudo"])
+        self.assertTrue(args.sudo)
+
+    def test_add_profile_parser_no_sudo_flag(self):
+        """Test --no-sudo flag sets sudo to False."""
+        add_profile_parser(self.subparsers)
+
+        args = self.parser.parse_args(["profile", "--nsys", "--no-sudo"])
+        self.assertFalse(args.sudo)
+
+    def test_add_profile_parser_sudo_default_none(self):
+        """Test sudo defaults to None (auto-detect) when neither flag passed."""
+        add_profile_parser(self.subparsers)
+
+        args = self.parser.parse_args(["profile", "--nsys"])
+        self.assertIsNone(args.sudo)
+
+    def test_add_profile_parser_sudo_no_sudo_mutually_exclusive(self):
+        """Test --sudo and --no-sudo are mutually exclusive."""
+        add_profile_parser(self.subparsers)
+
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["profile", "--nsys", "--sudo", "--no-sudo"])
 
 
 class TestRunProfileCommandSuccess(unittest.TestCase):
@@ -138,11 +166,22 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
+        # Mock sudo detection so tests don't make real subprocess calls
+        self._nsys_detect_patcher = patch(
+            "ncompass.cli.profile.detect_nsys_sudo_needed", return_value=False
+        )
+        self._ncu_detect_patcher = patch(
+            "ncompass.cli.profile.detect_ncu_sudo_needed", return_value=False
+        )
+        self._nsys_detect_patcher.start()
+        self._ncu_detect_patcher.start()
 
     def tearDown(self):
         """Clean up temporary files."""
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+        self._nsys_detect_patcher.stop()
+        self._ncu_detect_patcher.stop()
 
     def _create_args(self, **kwargs):
         """Create argparse.Namespace with default values."""
@@ -156,6 +195,7 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
             "convert": False,
             "verbose": False,
             "quiet": False,
+            "sudo": None,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
@@ -347,22 +387,45 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
     @patch("ncompass.cli.profile.create_trace_directory")
-    def test_run_profile_command_sudo(
+    def test_run_profile_command_nsys_sudo(
         self, mock_create_dir, mock_check_nsys, mock_run_nsys
     ):
-        """Test sudo usage can be controlled via extra_args (if implemented there)."""
+        """Test --sudo flag is passed to run_nsys_profile."""
         mock_check_nsys.return_value = True
         mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
-        
-        args = self._create_args(extra_args=["--sudo"])
-        
-        run_profile_command(args)
-        
+
+        args = self._create_args(sudo=True)
+
+        result = run_profile_command(args)
+
+        self.assertEqual(result, 0)
         call_kwargs = mock_run_nsys.call_args[1]
-        self.assertEqual(call_kwargs["extra_args"], ["--sudo"])
+        self.assertTrue(call_kwargs["sudo"])
+
+    @patch("ncompass.cli.profile.run_ncu_profile")
+    @patch("ncompass.cli.profile.check_ncu_available")
+    @patch("ncompass.cli.profile.convert_ncu_to_csv")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_ncu_sudo(
+        self, mock_create_dir, mock_convert_ncu, mock_check_ncu, mock_run_ncu
+    ):
+        """Test --sudo flag is passed to run_ncu_profile."""
+        mock_check_ncu.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        output_rep = Path(self.temp_dir) / "output.ncu-rep"
+        output_rep.touch()
+        mock_run_ncu.return_value = output_rep
+
+        args = self._create_args(ncu=True, nsys=False, sudo=True)
+
+        result = run_profile_command(args)
+
+        self.assertEqual(result, 0)
+        call_kwargs = mock_run_ncu.call_args[1]
+        self.assertTrue(call_kwargs["sudo"])
 
     @patch("ncompass.cli.profile.run_nsys_profile")
     @patch("ncompass.cli.profile.check_nsys_available")
@@ -376,13 +439,85 @@ class TestRunProfileCommandSuccess(unittest.TestCase):
         nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
         nsys_rep.touch()
         mock_run_nsys.return_value = nsys_rep
-        
+
         args = self._create_args(user_command=["python", "train.py", "--epochs", "20", "--batch-size", "64"])
-        
+
         run_profile_command(args)
-        
+
         call_kwargs = mock_run_nsys.call_args[1]
         self.assertEqual(call_kwargs["command"], ["python", "train.py", "--epochs", "20", "--batch-size", "64"])
+
+    @patch("ncompass.cli.profile.detect_nsys_sudo_needed")
+    @patch("ncompass.cli.profile.run_nsys_profile")
+    @patch("ncompass.cli.profile.check_nsys_available")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_auto_detect_sudo_nsys(
+        self, mock_create_dir, mock_check_nsys, mock_run_nsys, mock_detect
+    ):
+        """Test auto-detection of sudo for nsys when --sudo not specified."""
+        mock_check_nsys.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
+        nsys_rep.touch()
+        mock_run_nsys.return_value = nsys_rep
+        mock_detect.return_value = True
+
+        args = self._create_args(sudo=None)
+
+        result = run_profile_command(args)
+
+        self.assertEqual(result, 0)
+        mock_detect.assert_called_once()
+        call_kwargs = mock_run_nsys.call_args[1]
+        self.assertTrue(call_kwargs["sudo"])
+
+    @patch("ncompass.cli.profile.detect_ncu_sudo_needed")
+    @patch("ncompass.cli.profile.run_ncu_profile")
+    @patch("ncompass.cli.profile.check_ncu_available")
+    @patch("ncompass.cli.profile.convert_ncu_to_csv")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_auto_detect_sudo_ncu(
+        self, mock_create_dir, mock_convert_ncu, mock_check_ncu, mock_run_ncu, mock_detect
+    ):
+        """Test auto-detection of sudo for ncu when --sudo not specified."""
+        mock_check_ncu.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        output_rep = Path(self.temp_dir) / "output.ncu-rep"
+        output_rep.touch()
+        mock_run_ncu.return_value = output_rep
+        mock_detect.return_value = True
+
+        args = self._create_args(ncu=True, nsys=False, sudo=None)
+
+        result = run_profile_command(args)
+
+        self.assertEqual(result, 0)
+        mock_detect.assert_called_once()
+        call_kwargs = mock_run_ncu.call_args[1]
+        self.assertTrue(call_kwargs["sudo"])
+
+    @patch("ncompass.cli.profile.detect_nsys_sudo_needed")
+    @patch("ncompass.cli.profile.run_nsys_profile")
+    @patch("ncompass.cli.profile.check_nsys_available")
+    @patch("ncompass.cli.profile.create_trace_directory")
+    def test_run_profile_command_explicit_sudo_skips_detection(
+        self, mock_create_dir, mock_check_nsys, mock_run_nsys, mock_detect
+    ):
+        """Test that explicit --sudo skips auto-detection."""
+        mock_check_nsys.return_value = True
+        mock_create_dir.return_value = (Path(self.temp_dir), "20251205_120000")
+        nsys_rep = Path(self.temp_dir) / "output.nsys-rep"
+        nsys_rep.touch()
+        mock_run_nsys.return_value = nsys_rep
+
+        args = self._create_args(sudo=True)
+
+        result = run_profile_command(args)
+
+        self.assertEqual(result, 0)
+        mock_detect.assert_not_called()
+        call_kwargs = mock_run_nsys.call_args[1]
+        self.assertTrue(call_kwargs["sudo"])
 
 
 class TestRunProfileCommandNegative(unittest.TestCase):
@@ -391,11 +526,21 @@ class TestRunProfileCommandNegative(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
+        self._nsys_detect_patcher = patch(
+            "ncompass.cli.profile.detect_nsys_sudo_needed", return_value=False
+        )
+        self._ncu_detect_patcher = patch(
+            "ncompass.cli.profile.detect_ncu_sudo_needed", return_value=False
+        )
+        self._nsys_detect_patcher.start()
+        self._ncu_detect_patcher.start()
 
     def tearDown(self):
         """Clean up temporary files."""
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+        self._nsys_detect_patcher.stop()
+        self._ncu_detect_patcher.stop()
 
     def _create_args(self, **kwargs):
         """Create argparse.Namespace with default values."""
@@ -409,6 +554,7 @@ class TestRunProfileCommandNegative(unittest.TestCase):
             "convert": False,
             "verbose": False,
             "quiet": False,
+            "sudo": None,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
@@ -508,11 +654,21 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
+        self._nsys_detect_patcher = patch(
+            "ncompass.cli.profile.detect_nsys_sudo_needed", return_value=False
+        )
+        self._ncu_detect_patcher = patch(
+            "ncompass.cli.profile.detect_ncu_sudo_needed", return_value=False
+        )
+        self._nsys_detect_patcher.start()
+        self._ncu_detect_patcher.start()
 
     def tearDown(self):
         """Clean up temporary files."""
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+        self._nsys_detect_patcher.stop()
+        self._ncu_detect_patcher.stop()
 
     def _create_args(self, **kwargs):
         """Create argparse.Namespace with default values."""
@@ -526,6 +682,7 @@ class TestRunProfileCommandEdgeCases(unittest.TestCase):
             "convert": False,
             "verbose": False,
             "quiet": False,
+            "sudo": None,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)

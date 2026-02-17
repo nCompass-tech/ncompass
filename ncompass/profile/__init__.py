@@ -17,10 +17,12 @@
 from ncompass.profile.nsys import (
     check_nsys_available,
     create_trace_directory,
+    detect_nsys_sudo_needed,
     run_nsys_profile,
 )
 from ncompass.profile.ncu import (
     check_ncu_available,
+    detect_ncu_sudo_needed,
     run_ncu_profile,
     convert_ncu_to_csv,
     convert_ncu_to_session,
@@ -33,8 +35,10 @@ from ncompass.profile.ncu import (
 __all__ = [
     "check_nsys_available",
     "create_trace_directory",
+    "detect_nsys_sudo_needed",
     "run_nsys_profile",
     "check_ncu_available",
+    "detect_ncu_sudo_needed",
     "run_ncu_profile",
     "convert_ncu_to_csv",
     "convert_ncu_to_session",
