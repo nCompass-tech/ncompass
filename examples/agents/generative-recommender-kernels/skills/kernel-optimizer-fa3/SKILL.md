@@ -91,21 +91,22 @@ python3 nc_pkg.py --run --tag "$SESSION_ID" --ncompass-dir ../../../ncompass
 This starts the container, installs generative-recommenders dependencies, installs ncompass, and drops you into a shell.
 
 ## Building the Kernel
+=======
 [CRITICAL] Working directory in the docker container is same as the host.
 
 ### Build optimized kernel
 
 ```bash
-fa3/build.sh
+bash fa3/build.sh
 ```
-Verify: `python -c "import hstu_runner._C; print('OK')"`
+Verify: `python -c "import torch; import hstu_runner._C; print('OK')"`
 
 ### Build reference kernel
 
 ```bash
-fa3/build_reference.sh
+bash fa3/build_reference.sh
 ```
-Verify: `python -c "import hstu._C; print('OK')"`
+Verify: `python -c "import torch; import hstu._C; print('OK')"`
 
 ### Build flags
 
