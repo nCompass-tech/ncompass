@@ -190,8 +190,6 @@ def _setup_docker_imports():
     )
     return base_main, get_compose_files, get_compose_env, execute_in_container
 
-SERVICE_NAME = "vllm_example"
-
 # Store wheel name globally for the hook
 _wheel_name: str | None = None
 
@@ -376,7 +374,7 @@ def main():
 
     # Call base main with vllm-specific hooks
     base_main(
-        service_name=SERVICE_NAME,
+        service_name="vllm_example",
         env_config_path=env_config_path if env_config_path.exists() else None,
         post_install_hook=install_vllm,
         extra_args_handler=add_wheel_arg,

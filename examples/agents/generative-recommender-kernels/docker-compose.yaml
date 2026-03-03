@@ -1,8 +1,8 @@
-# Docker compose for vllm_example
+# Docker compose for generative-recommender-kernels
 # Extends the unified nCompass Docker configuration
 
 services:
-  vllm_example:
+  gr_kernels:
     extends:
       file: ./docker/docker-compose.base.yaml
       service: ncompass
