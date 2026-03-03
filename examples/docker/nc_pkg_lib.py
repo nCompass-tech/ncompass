@@ -382,10 +382,6 @@ def create_parser(service_name: str) -> argparse.ArgumentParser:
         help='Tag for the Docker container (default: latest)'
     )
     parser.add_argument(
-        '--name', type=str, default=service_name,
-        help=f'Name for the Docker container (default: {service_name})'
-    )
-    parser.add_argument(
         '--no-exec', action='store_true',
         help='Do not automatically exec into the container'
     )
@@ -427,6 +423,14 @@ def main(
 
     env = get_compose_env(env_config_path)
 
+    # Set COMPOSE_PROJECT_NAME for session isolation when --tag is provided.
+    # Set on os.environ so downstream functions (run_container, exec_command)
+    # that call get_compose_env() also pick it up.
+    if parsed_args.tag != 'latest':
+        os.environ['COMPOSE_PROJECT_NAME'] = \
+                f"{example_dir.name}-{parsed_args.tag}"
+        env['COMPOSE_PROJECT_NAME'] = os.environ['COMPOSE_PROJECT_NAME']
+
     if parsed_args.build:
         build_image(example_dir, env)
 
@@ -442,7 +446,7 @@ def main(
         if getattr(parsed_args, 'exec', None) is not None:
             exec_command(
                 example_dir=example_dir,
-                service_name=parsed_args.name,
+                service_name=service_name,
                 ncompass_dir=parsed_args.ncompass_dir,
                 command=parsed_args.exec,
                 env_config_path=env_config_path,
@@ -452,7 +456,7 @@ def main(
         if parsed_args.run:
             run_container(
                 example_dir=example_dir,
-                service_name=parsed_args.name,
+                service_name=service_name,
                 ncompass_dir=parsed_args.ncompass_dir,
                 auto_exec=not parsed_args.no_exec,
                 env_config_path=env_config_path,

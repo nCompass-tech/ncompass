@@ -1,3 +1,6 @@
 [submodule "examples/vllm_example/vllm_src"]
 	path = examples/vllm_example/vllm_src
 	url = git@github.com:vllm-project/vllm.git
+[submodule "examples/agents/generative-recommenders"]
+	path = examples/agents/generative-recommender-kernels/generative-recommenders
+	url = org-206270261@github.com:meta-recsys/generative-recommenders.git

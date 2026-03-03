@@ -1,0 +1,65 @@
+diff --git a/generative_recommenders/ops/cpp/hstu_attention/flash_api.cpp b/generative_recommenders/ops/cpp/hstu_attention/flash_api.cpp
+index 389e662..b8f6253 100644
+--- a/generative_recommenders/ops/cpp/hstu_attention/flash_api.cpp
++++ b/generative_recommenders/ops/cpp/hstu_attention/flash_api.cpp
+@@ -119,22 +119,22 @@ class HSTUFlashAttentionFunctionGPU
+         max_attn_len_tensor,
+         min_full_attn_seq_len_tensor,
+         num_groups);
+-    auto out = get<0>(fwd_out);
+-    auto softmax_lse = get<1>(fwd_out);
+-    ctx->save_for_backward(
+-        {q,
+-         k,
+-         v,
+-         out,
+-         seq_offsets.value_or(at::Tensor()),
+-         num_targets.value_or(at::Tensor()),
+-         attn_scale.value_or(at::Tensor()),
+-         seq_offsets_q.value_or(at::Tensor()),
+-         softmax_lse.value_or(at::Tensor()),
+-         max_seq_len_tensor.value_or(at::Tensor()),
+-         contextual_seq_len_tensor.value_or(at::Tensor()),
+-         max_attn_len_tensor.value_or(at::Tensor()),
+-         min_full_attn_seq_len_tensor.value_or(at::Tensor())});
++    auto out = std::get<0>(fwd_out);
++    auto softmax_lse = std::get<1>(fwd_out);
++    ctx->save_for_backward(torch::autograd::variable_list{
++        q,
++        k,
++        v,
++        out,
++        seq_offsets.value_or(at::Tensor()),
++        num_targets.value_or(at::Tensor()),
++        attn_scale.value_or(at::Tensor()),
++        seq_offsets_q.value_or(at::Tensor()),
++        softmax_lse.value_or(at::Tensor()),
++        max_seq_len_tensor.value_or(at::Tensor()),
++        contextual_seq_len_tensor.value_or(at::Tensor()),
++        max_attn_len_tensor.value_or(at::Tensor()),
++        min_full_attn_seq_len_tensor.value_or(at::Tensor())});
+     return out;
+   }
+ 
+diff --git a/generative_recommenders/ops/cpp/hstu_attention/flash_api_cpu.cpp b/generative_recommenders/ops/cpp/hstu_attention/flash_api_cpu.cpp
+index c02424e..98c3f8e 100644
+--- a/generative_recommenders/ops/cpp/hstu_attention/flash_api_cpu.cpp
++++ b/generative_recommenders/ops/cpp/hstu_attention/flash_api_cpu.cpp
+@@ -74,7 +74,7 @@ at::Tensor hstu_mha_cpu(
+       seq_offsets_q,
+       num_softmax_heads,
+       training);
+-  return get<0>(fwd_out);
++  return std::get<0>(fwd_out);
+ }
+ 
+ at::Tensor hstu_mha_meta(
+@@ -127,7 +127,7 @@ at::Tensor hstu_mha_meta(
+       seq_offsets_q,
+       num_softmax_heads,
+       training);
+-  return get<0>(fwd_out);
++  return std::get<0>(fwd_out);
+ }
+ 
+ // CPU-only implementation that registers under main hstu namespace
