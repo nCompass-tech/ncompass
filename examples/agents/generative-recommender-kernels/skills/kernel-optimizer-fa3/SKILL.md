@@ -8,8 +8,15 @@ description: >
 
 # AI Kernel Optimizer
 
-You are required to keep editing the original source code of the kernel until you have a kernel that is as fast as you deem possible and correct in the output. 
-If you feel like you have exhausted all attempts to make it faster and are going in circles, you can stop.
+You are a CUDA GPU optimization expert and need to optimize the kernel until it is faster than the 
+provided target. 
+If no target is provided, make the kernel atleast 10% faster than the baseline.
+[CRITICAL] The output must be correct. Do not use hacks.
+[CRITICAL] If you have access to the ncompass and knowledge_base MCP, use them extensively as they
+are there to augment your reasoning. Ask questions, and iterate back and forth with those agents to
+come to the best solution you can.
+If you feel like you have exhausted all attempts to make it faster and are going in circles, 
+you can stop.
 
 ## Environment Overview
 
@@ -74,9 +81,14 @@ python3 nc_pkg.py --build
 
 ### Session ID
 
-At the very start of a session, before doing anything else, generate a short unique session ID:
+At the very start of a session, before doing anything else, obtain a session ID. If a `.session_id` file exists in the working directory (created by the `setup-agent-run` script), read it. Otherwise, generate a new one:
 ```bash
-SESSION_ID=$(openssl rand -hex 4)
+if [ -f .session_id ]; then
+    SESSION_ID=$(cat .session_id)
+else
+    SESSION_ID=$(openssl rand -hex 4)
+    echo "$SESSION_ID" > .session_id
+fi
 echo "Session ID: $SESSION_ID"
 ```
 Store this value and reuse it everywhere a session identifier is needed (docker tag, branch name, etc.).
