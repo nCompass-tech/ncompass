@@ -1,2 +1,4 @@
 docker
 *.ncu-rep
+model_runner/.model_cache/
+model_runner/.nsys_traces/

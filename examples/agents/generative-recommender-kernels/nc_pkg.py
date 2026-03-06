@@ -36,16 +36,16 @@ def _setup_docker_imports():
 
 
 def patch_reference_sources() -> None:
-    """Apply C++ compat patches to generative-recommenders source via git apply.
+    """Apply patches to generative-recommenders source via git apply.
 
     Idempotent: skips if submodule already has local changes.
     """
     submodule = Path(__file__).parent / "generative-recommenders"
-    patch_file = Path(__file__).parent / "fa3" / "reference" / "cpp_compat.patch"
-
-    if not patch_file.exists():
-        print(f"Warning: {patch_file} not found, skipping source patching.")
-        return
+    patch_dir = Path(__file__).parent / "fa3" / "reference"
+    patch_files = [
+        patch_dir / "cpp_compat.patch",
+        patch_dir / "hstu_attention_import.patch",
+    ]
 
     if not submodule.exists():
         return
@@ -60,17 +60,21 @@ def patch_reference_sources() -> None:
         # Already has local changes — assume patched
         return
 
-    print("Applying C++ compatibility patches to generative-recommenders...")
-    result = subprocess.run(
-        ["git", "apply", str(patch_file.resolve())],
-        cwd=submodule,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        print(f"Warning: patch failed: {result.stderr}")
-    else:
-        print("Patches applied.")
+    print("Applying patches to generative-recommenders...")
+    for patch_file in patch_files:
+        if not patch_file.exists():
+            print(f"Warning: {patch_file.name} not found, skipping.")
+            continue
+        result = subprocess.run(
+            ["git", "apply", str(patch_file.resolve())],
+            cwd=submodule,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"Warning: {patch_file.name} failed: {result.stderr}")
+        else:
+            print(f"Applied {patch_file.name}.")
 
 
 def install_gr_deps(compose_files: list[str], env: dict[str, str], service_name: str) -> None:
