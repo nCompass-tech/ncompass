@@ -10,9 +10,7 @@ import torch
 warnings.filterwarnings("ignore", message="Logical operators.*deprecated", category=UserWarning)
 warnings.filterwarnings("ignore", message="Enable tracemalloc", category=UserWarning)
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-
-sys.path.insert(0, str(_SCRIPT_DIR.parent / "generative-recommenders"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "generative-recommenders"))
 
 from generative_recommenders.common import HammerKernel
 from generative_recommenders.dlrm_v3.configs import (
@@ -38,7 +36,7 @@ def parse_args() -> argparse.Namespace:
                         help="Kernel backend: pytorch or triton (default: triton)")
     parser.add_argument("--cache-dir",
                         type=str,
-                        default=str(_SCRIPT_DIR / ".model_cache"),
+                        default=str(Path(__file__).resolve().parent / ".model_cache"),
                         help="Directory to cache model weights (default: model_runner/.model_cache)")
     parser.add_argument("--no-cache", action="store_true",
                         help="Disable model weight caching")
