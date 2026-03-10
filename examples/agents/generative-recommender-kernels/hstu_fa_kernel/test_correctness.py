@@ -36,7 +36,7 @@ def load_kernels():
         import hstu_ai_optimized._C  # noqa: F401
     except ImportError:
         print("Error: Scratch kernel not available. Build it first:")
-        print("  bash hstu_fa_kernel/build.sh")
+        print("  python hstu_fa_kernel/build.py")
         sys.exit(1)
 
 

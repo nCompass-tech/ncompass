@@ -14,8 +14,6 @@ import argparse
 import json
 import os
 import sys
-import time
-from pathlib import Path
 
 # Add hstu_fa_kernel/ to sys.path so the local reference package can be imported.
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -166,7 +164,8 @@ def print_results(name, timings, batch_size, avg_seq_len, num_heads, head_dim, c
     }
 
 
-def main():
+def parse_args():
+    """Parse command-line arguments for the benchmark."""
     parser = argparse.ArgumentParser(description="Benchmark HSTU attention kernels")
     parser.add_argument("--batch-size", "-b", type=int, default=512)
     parser.add_argument("--max-seq-len", "-s", type=int, default=256)
@@ -185,12 +184,11 @@ def main():
                         help="Save results to JSON file")
     parser.add_argument("--compare-baseline", type=str, default=None,
                         help="Compare against saved baseline JSON")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    device = "cuda"
-    dtype = torch.bfloat16
-    num_softmax_heads = args.num_heads if args.softmax else 0
 
+def print_config(args, num_softmax_heads):
+    """Print benchmark configuration."""
     print(f"Benchmark config:")
     print(f"  Batch size:    {args.batch_size}")
     print(f"  Max seq len:   {args.max_seq_len}")
@@ -201,25 +199,22 @@ def main():
     print(f"  Distribution:  {args.distribution}")
     print(f"  Warmup/Iters:  {args.warmup}/{args.iterations}")
 
-    ref_available, scratch_available = load_kernels()
+
+def print_kernel_availability(ref_available, scratch_available):
+    """Print kernel availability and exit if none are available."""
     print(f"\n  Reference (pytorch_hstu_mha):     {'available' if ref_available else 'NOT available'}")
     print(f"  Scratch kernel (hstu_ai_optimized): {'available' if scratch_available else 'NOT available'}")
 
     if not ref_available and not scratch_available:
         print("\nError: No kernels available. Build at least one:")
         print("  Ensure hstu_fa_kernel/reference/pt_hstu_attention.py exists (for PyTorch reference)")
-        print("  bash hstu_fa_kernel/build.sh            (for scratch kernel)")
+        print("  python hstu_fa_kernel/build.py           (for scratch kernel)")
         sys.exit(1)
 
-    # Create inputs
-    q, k, v, seq_offsets, total_tokens = create_jagged_inputs(
-        args.batch_size, args.max_seq_len, args.num_heads, args.head_dim,
-        device, dtype, args.distribution,
-    )
-    avg_seq_len = total_tokens / args.batch_size
-    print(f"\n  Total tokens:  {total_tokens}")
-    print(f"  Avg seq len:   {avg_seq_len:.1f}")
 
+def run_benchmarks(args, q, k, v, seq_offsets, avg_seq_len, num_softmax_heads,
+                   ref_available, scratch_available):
+    """Run benchmarks for available kernels and return results dict."""
     results = {}
 
     if ref_available:
@@ -244,45 +239,80 @@ def main():
             args.num_heads, args.head_dim, args.causal,
         )
 
-    # Speedup comparison
     if ref_available and scratch_available:
         ref_median = results["reference"]["median_ms"]
         scratch_median = results["scratch"]["median_ms"]
         speedup = ref_median / scratch_median
         print(f"\n  Speedup: {speedup:.3f}x ({'faster' if speedup > 1 else 'slower'})")
 
-    # Save baseline
-    if args.save_baseline:
-        save_data = {
-            "config": {
-                "batch_size": args.batch_size,
-                "max_seq_len": args.max_seq_len,
-                "num_heads": args.num_heads,
-                "head_dim": args.head_dim,
-                "causal": args.causal,
-                "softmax": args.softmax,
-                "distribution": args.distribution,
-                "total_tokens": total_tokens,
-                "avg_seq_len": avg_seq_len,
-            },
-            "results": results,
-        }
-        os.makedirs(os.path.dirname(args.save_baseline) or ".", exist_ok=True)
-        with open(args.save_baseline, "w") as f:
-            json.dump(save_data, f, indent=2)
-        print(f"\n  Baseline saved to: {args.save_baseline}")
+    return results
 
-    # Compare against baseline
-    if args.compare_baseline and os.path.exists(args.compare_baseline):
-        with open(args.compare_baseline) as f:
-            baseline = json.load(f)
-        print(f"\n  Comparing against baseline: {args.compare_baseline}")
-        for kernel_name in ["reference", "scratch"]:
-            if kernel_name in results and kernel_name in baseline.get("results", {}):
-                cur = results[kernel_name]["median_ms"]
-                base = baseline["results"][kernel_name]["median_ms"]
-                change = (cur - base) / base * 100
-                print(f"    {kernel_name}: {base:.3f} -> {cur:.3f} ms ({change:+.1f}%)")
+
+def save_baseline(path, args, total_tokens, avg_seq_len, results):
+    """Save benchmark results to a JSON baseline file."""
+    save_data = {
+        "config": {
+            "batch_size": args.batch_size,
+            "max_seq_len": args.max_seq_len,
+            "num_heads": args.num_heads,
+            "head_dim": args.head_dim,
+            "causal": args.causal,
+            "softmax": args.softmax,
+            "distribution": args.distribution,
+            "total_tokens": total_tokens,
+            "avg_seq_len": avg_seq_len,
+        },
+        "results": results,
+    }
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(save_data, f, indent=2)
+    print(f"\n  Baseline saved to: {path}")
+
+
+def compare_baseline(path, results):
+    """Compare current results against a saved baseline JSON file."""
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        baseline = json.load(f)
+    print(f"\n  Comparing against baseline: {path}")
+    for kernel_name in ["reference", "scratch"]:
+        if kernel_name in results and kernel_name in baseline.get("results", {}):
+            cur = results[kernel_name]["median_ms"]
+            base = baseline["results"][kernel_name]["median_ms"]
+            change = (cur - base) / base * 100
+            print(f"    {kernel_name}: {base:.3f} -> {cur:.3f} ms ({change:+.1f}%)")
+
+
+def main():
+    args = parse_args()
+
+    device = "cuda"
+    dtype = torch.bfloat16
+    num_softmax_heads = args.num_heads if args.softmax else 0
+
+    print_config(args, num_softmax_heads)
+
+    ref_available, scratch_available = load_kernels()
+    print_kernel_availability(ref_available, scratch_available)
+
+    q, k, v, seq_offsets, total_tokens = create_jagged_inputs(
+        args.batch_size, args.max_seq_len, args.num_heads, args.head_dim,
+        device, dtype, args.distribution,
+    )
+    avg_seq_len = total_tokens / args.batch_size
+    print(f"\n  Total tokens:  {total_tokens}")
+    print(f"  Avg seq len:   {avg_seq_len:.1f}")
+
+    results = run_benchmarks(args, q, k, v, seq_offsets, avg_seq_len,
+                             num_softmax_heads, ref_available, scratch_available)
+
+    if args.save_baseline:
+        save_baseline(args.save_baseline, args, total_tokens, avg_seq_len, results)
+
+    if args.compare_baseline:
+        compare_baseline(args.compare_baseline, results)
 
 
 if __name__ == "__main__":
