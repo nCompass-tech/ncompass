@@ -38,11 +38,11 @@ invalid.
 ```
 hstu_fa_kernel/
     setup.py                # Builds kernel/ as hstu_ai_optimized package
-    build.sh                # Build the kernel
+    build.py                # Build the kernel
     bench.py                # Benchmark PyTorch ref vs scratch kernel
     test_correctness.py     # Compare outputs for correctness
     profile_ncu.py          # NCU profiling entry point
-    profile_ncu.sh          # NCU wrapper script
+    profile_ncu_runner.py   # NCU wrapper script
     kernel/                 # Git-tracked editable kernel sources
         flash_fwd_launch_template.h   # *** YOUR MAIN FILE — replace the stub ***
         flash_api.cpp       # Op registration (hstu_ai_optimized namespace)
@@ -131,7 +131,7 @@ This starts the container, installs dependencies, installs ncompass, and drops y
 ### Build the scratch kernel
 
 ```bash
-bash hstu_fa_kernel/build.sh
+python hstu_fa_kernel/build.py
 ```
 Verify: `python -c "import torch; import hstu_ai_optimized._C; print('OK')"`
 
@@ -149,7 +149,7 @@ The build uses these defaults (forward-only, BF16 hdim128 SM90):
 
 ### After editing kernel source
 
-Just re-run `bash hstu_fa_kernel/build.sh`. Ninja will incrementally rebuild only changed files.
+Just re-run `python hstu_fa_kernel/build.py`. Ninja will incrementally rebuild only changed files.
 
 ## Testing Correctness and Performance
 
@@ -184,9 +184,9 @@ Reports median/mean/min latency and estimated TFLOPS for both PyTorch reference 
 ## Profiling with NCU
 
 ```bash
-bash hstu_fa_kernel/profile_ncu.sh                                 # default config
-bash hstu_fa_kernel/profile_ncu.sh -o my_report                    # custom output name
-bash hstu_fa_kernel/profile_ncu.sh -- --batch-size 256             # custom kernel args
+python hstu_fa_kernel/profile_ncu_runner.py                                 # default config
+python hstu_fa_kernel/profile_ncu_runner.py -o my_report                    # custom output name
+python hstu_fa_kernel/profile_ncu_runner.py -- --batch-size 256             # custom kernel args
 ```
 
 Reports are saved in `hstu_fa_kernel/ncu_reports/`.
@@ -211,7 +211,7 @@ Track every kernel change as a separate commit so we can trace which edit produc
 
 ## Key Constraints
 
-- Always rebuild (`bash hstu_fa_kernel/build.sh`) after editing kernel sources before testing
+- Always rebuild (`python hstu_fa_kernel/build.py`) after editing kernel sources before testing
 - Always run `python hstu_fa_kernel/test_correctness.py` after edits to verify correctness
 - Use `python hstu_fa_kernel/bench.py --compare-baseline hstu_fa_kernel/baselines/reference.json` to track progress
 - The reference PyTorch code in `hstu_fa_kernel/reference/` must NEVER be modified

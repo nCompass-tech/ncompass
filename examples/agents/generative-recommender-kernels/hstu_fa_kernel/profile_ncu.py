@@ -4,7 +4,7 @@ Python entry point for NCU profiling of the from-scratch HSTU attention kernel.
 Creates fixed-length inputs, does warmup, then runs the kernel under
 cudaProfilerStart/Stop for clean NCU capture.
 
-Usage (typically called via profile_ncu.sh):
+Usage (typically called via profile_ncu_runner.py):
     python hstu_fa_kernel/profile_ncu.py
     python hstu_fa_kernel/profile_ncu.py --batch-size 256 --max-seq-len 512
 """
