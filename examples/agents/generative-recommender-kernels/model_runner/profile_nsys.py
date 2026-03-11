@@ -36,6 +36,8 @@ def build_nsys_cmd(config: NsysConfig, output: str, model_args: list[str]) -> li
         "--capture-range=cudaProfilerApi",
         "--capture-range-end=stop",
         "--cuda-memory-usage=true",
+        "--cuda-graph-trace=node",
+        "-tcuda,nvtx",
         "-o", output,
         "--force-overwrite=true",
         sys.executable, "-u", str(config.script),
