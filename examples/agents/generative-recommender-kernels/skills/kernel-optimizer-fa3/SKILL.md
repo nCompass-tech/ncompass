@@ -62,24 +62,7 @@ The optimized kernel source in `fa3/kernel/` is **git-tracked directly**. It was
 - `flash_common.cpp` - Host-side setup, param validation
 - `instantiations/*.cu` - Template instantiation (auto-generated pattern)
 
-## Docker Environment
-
-Set up the Docker dev environment before building kernels. Inside Docker, `python` and `pip` are on PATH — no virtualenv prefix needed.
-
-### One-time setup
-
-```bash
-python3 nc_pkg.py --setup --docker-dir ../../docker
-```
-
-This creates a `docker/` symlink to the shared Docker infrastructure.
-
-### Build the image
-```bash
-python3 nc_pkg.py --build
-```
-
-### Session ID
+## Session ID
 
 At the very start of a session, before doing anything else, obtain a session ID. If a `.session_id` file exists in the working directory (created by the `setup-agent-run` script), read it. Otherwise, generate a new one:
 ```bash
@@ -91,20 +74,9 @@ else
 fi
 echo "Session ID: $SESSION_ID"
 ```
-Store this value and reuse it everywhere a session identifier is needed (docker tag, branch name, etc.).
-
-### Start container and exec shell
-[CRITICAL] You must tag the docker container you're creating with the session ID as we can have
-multiple parallel sessions going on. You don't want to be working on another optimizer's session.
-```bash
-python3 nc_pkg.py --run --tag "$SESSION_ID" --ncompass-dir ../../../ncompass
-```
-
-This starts the container, installs generative-recommenders dependencies, installs ncompass, and drops you into a shell.
+Store this value and reuse it everywhere a session identifier is needed (branch name, etc.).
 
 ## Building the Kernel
-=======
-[CRITICAL] Working directory in the docker container is same as the host.
 
 ### Build optimized kernel
 
