@@ -28,9 +28,8 @@ If you feel like you have exhausted all attempts and are going in circles, you c
 The hstu_fa_kernel/ infrastructure sets up the problem of writing a CUDA HSTU attention kernel from scratch. The reference implementation is the PyTorch `pytorch_hstu_mha()` function.
 
 - **Scratch kernel** (`hstu_fa_kernel/kernel/`): Your editable kernel code. Builds as `hstu_ai_optimized` package, registers `torch.ops.hstu_ai_optimized.*`.
-[CRITICAL] These are the only files you can edit and any changes you make that are "hacks" and try
-to game the way the kernel is being profiled for correctness of performance will be considered
-invalid.
+[CRITICAL] Only files listed in "Files You Edit" below may be modified. Any changes that are
+"hacks" to game profiling, correctness, or performance measurement will be considered invalid.
 - **Reference**: `pytorch_hstu_mha()` from `hstu_fa_kernel/reference/pt_hstu_attention.py` — a pure PyTorch implementation.
 
 ### Directory Layout
@@ -74,15 +73,25 @@ The stub in `flash_fwd_launch_template.h` currently just zeros the output. You r
 
 ### Files You Edit
 
-- `kernel/flash_fwd_launch_template.h` — Your main kernel file
+**Device-side (kernel code):**
+- `kernel/flash_fwd_launch_template.h` — Your main kernel file (TMA descriptor creation, kernel launch)
 - Any new header files you create in `kernel/` (e.g., `mainloop_fwd.h`, `softmax.h`, `mask.h`, etc.)
+
+**Host-side (required for TMA and advanced optimizations):**
+- `kernel/flash.h` — Parameter structs (`Flash_fwd_params`, `Qkv_params`) — add TMA descriptor fields here to pass descriptors from host to kernel
+- `kernel/flash_common.cpp` — Host-side parameter setup — memory alignment for TMA (16-byte aligned), empty-sequence guards, `cudaFuncSetAttribute` for dynamic shared memory
+- `kernel/flash_api.cpp` — Python-to-C++ interface — update signatures if new parameters are added
+
+**Configuration:**
+- `kernel/tile_size.h` — Tile/block size config that determines shared memory layouts (TMA tile dimensions must match)
 
 ### Files You Do NOT Edit
 
-- `flash_api.cpp` / `flash_api_cpu.cpp` — Op registration boilerplate
-- `flash_common.cpp` — Host-side setup, param validation, output allocation
-- `flash.h` — `Flash_fwd_params` struct (read this to understand available params)
+- `flash_api_cpu.cpp` / `flash_common_cpu.cpp` — CPU schema defs (no kernel logic)
 - `instantiations/*.cu` — Template instantiation files
+- `setup.py` / `build.py` — Build infrastructure
+- `bench.py` / `test_correctness.py` / `profile_ncu*.py` — Test and profiling harnesses
+- `reference/` — PyTorch reference implementation
 
 ## Session ID
 
