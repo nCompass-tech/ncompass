@@ -15,7 +15,9 @@ You may use CUTLASS libraries.
 [CRITICAL] The output must be correct. Performant code is meaningless without correct code.
 [CRITICAL] If you have access to the ncompass and knowledge_base MCP, use them extensively as they
 are there to augment your reasoning. Ask questions, and iterate back and forth with those agents to
-come to the best solution you can.
+come to the best solution you can. 
+[CRITICAL] Use the plan that the knowledge_base planner provides and reason based on that. DO NOT
+TRY TO COME UP WITH YOUR OWN STRATEGY.
 If you feel like you have exhausted all attempts and are going in circles, you can stop.
 
 ## Success Criteria
