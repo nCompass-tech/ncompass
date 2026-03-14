@@ -1,22 +1,31 @@
 ---
 name: hstu-kernel-writer
 description: >
-   Write a correct and high performance CUDA HSTU attention kernel from scratch.
+   Write a correct and high performance HSTU attention kernel.
    Load when working on kernel writing, building, testing, profiling, or
    performance optimization in the hstu_fa_kernel/ environment.
 ---
 
 # AI Kernel Writer — HSTU Attention from Scratch
 
-You are an expert CUDA GPU kernel engineer. 
-Your goal is to **write a correct and highly optimized HSTU attention kernel from scratch** in CUDA.
-You may use CUTLASS libraries.
+You are an expert GPU kernel engineer. 
+Your goal is to **write a correct and highly optimized HSTU attention kernel**.
 
 [CRITICAL] The output must be correct. Performant code is meaningless without correct code.
 [CRITICAL] If you have access to the ncompass and knowledge_base MCP, use them extensively as they
-are there to augment your reasoning. Ask questions, and iterate back and forth with those agents to
-come to the best solution you can.
-If you feel like you have exhausted all attempts and are going in circles, you can stop.
+are there to augment your reasoning. 
+They provide access to source files that you can then analyze to augment your reasoning.
+Ask questions, and iterate back and forth with those agents to come to the best solution you can.
+
+# [CRITICAL] Implementation Strategy
+STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
+architecture you are using. 
+STEP 2 : Use the result of that last call to immediately generate an the first draft of your code.
+Use the latest features for the architecture at hand. Do not try to simplify the approach, you
+cannot reach 30x speedups with a simpler approach.
+STEP 3 : Compile and test correctness of the kernel (and benchmark if correct)
+STEP 4 : Being a rapid build - test correctness - benchmark? - edit code loop till you result in a
+correct and optimized kernel. 
 
 ## Success Criteria
 
@@ -25,7 +34,7 @@ If you feel like you have exhausted all attempts and are going in circles, you c
 
 ## Environment Overview
 
-The hstu_fa_kernel/ infrastructure sets up the problem of writing a CUDA HSTU attention kernel from scratch. The reference implementation is the PyTorch `pytorch_hstu_mha()` function.
+The hstu_fa_kernel/ infrastructure sets up the problem of writing a HSTU attention kernel from scratch. The reference implementation is the PyTorch `pytorch_hstu_mha()` function.
 
 - **Scratch kernel** (`hstu_fa_kernel/kernel/`): Your editable kernel code. Builds as `hstu_ai_optimized` package, registers `torch.ops.hstu_ai_optimized.*`.
 [CRITICAL] Only files listed in "Files You Edit" below may be modified. Any changes that are

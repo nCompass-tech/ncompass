@@ -300,6 +300,8 @@ def _write_ninja_file(
 
 # Monkey patching
 torch.utils.cpp_extension._write_ninja_file = _write_ninja_file
+# Bypass CUDA version mismatch check (container nvcc may be newer than PyTorch's build CUDA)
+torch.utils.cpp_extension._check_cuda_version = lambda *args, **kwargs: None
 
 
 def get_platform():
