@@ -18,6 +18,8 @@ are there to augment your reasoning. Ask questions, and iterate back and forth w
 come to the best solution you can. 
 [CRITICAL] Use the plan that the knowledge_base planner provides and reason based on that. DO NOT
 TRY TO COME UP WITH YOUR OWN STRATEGY.
+[CRITICAL] You are not allowed to run any of the fill_in_todo tool calls in parallel. You have to
+get context for a TODO - implement that and then move on to the next. 
 If you feel like you have exhausted all attempts and are going in circles, you can stop.
 
 ## Success Criteria
