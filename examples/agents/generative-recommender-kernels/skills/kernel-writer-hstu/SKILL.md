@@ -21,8 +21,8 @@ Ask questions, and iterate back and forth with those agents to come to the best 
 STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
 architecture you are using. 
 STEP 2 : Use the result of that last call to immediately generate an the first draft of your code.
-Use the latest features for the architecture at hand. Do not try to simplify the approach, you
-cannot reach 30x speedups with a simpler approach.
+You must use WGMMA + TMA. Do not try to simplify the approach, you cannot reach 30x speedups with 
+a simpler approach.
 STEP 3 : Compile and test correctness of the kernel (and benchmark if correct)
 STEP 4 : Being a rapid build - test correctness - benchmark? - edit code loop till you result in a
 correct and optimized kernel. 
@@ -167,8 +167,8 @@ Reports median/mean/min latency and estimated TFLOPS for both PyTorch reference 
 
 ### Current target
 
-- **Kernel**: HSTU attention forward (sm90, bf16, hdim128, causal, jagged)
-- **Default benchmark config**: B=512, S=256, H=4, D=128, causal, no-softmax, jagged uniform
+- **Kernel**: HSTU attention forward (sm90, bf16, hdim128, causal+non-causal, no-softmax, jagged)
+- **Default benchmark config**: B=4, S=16384, H=4, D=128, causal and non-causal no-softmax, jagged uniform
 - **Metric**: Kernel latency (ms)
 
 ## Profiling with NCU
@@ -204,7 +204,6 @@ Track every kernel change as a separate commit so we can trace which edit produc
 
 - Always rebuild (`python hstu_fa_kernel/build.py`) after editing kernel sources before testing
 - Always run `python hstu_fa_kernel/test_correctness.py` after edits to verify correctness
-- Use `python hstu_fa_kernel/bench.py --compare-baseline hstu_fa_kernel/baselines/reference.json` to track progress
 - The reference PyTorch code in `hstu_fa_kernel/reference/` must NEVER be modified
 - Only forward pass is supported (backward is disabled)
 - The CUTLASS/CuTe headers are already on the include path — just `#include` them when needed
