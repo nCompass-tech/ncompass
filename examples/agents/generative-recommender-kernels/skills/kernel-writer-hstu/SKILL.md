@@ -21,8 +21,8 @@ Ask questions, and iterate back and forth with those agents to come to the best 
 STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
 architecture you are using. 
 Immediatly implement the best possible architecture for the hardware, do not try to simplify and
-then iterate up. Work using the latest reference files you can access using the MCP and compiling
-and debugging.
+then iterate up. Work using the latest reference files you can access using the MCP, compiling
+and debugging. Be very iterative and do not give up.
 
 ## Success Criteria
 
