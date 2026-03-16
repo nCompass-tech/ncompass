@@ -1,7 +1,7 @@
 ---
 name: hstu-kernel-writer
 description: >
-   Write a correct and high performance HSTU attention kernel from scratch.
+   Write a correct and high performance HSTU attention kernel.
    Load when working on kernel writing, building, testing, profiling, or
    performance optimization in the hstu_fa_kernel/ environment.
 ---
@@ -9,31 +9,20 @@ description: >
 # AI Kernel Writer — HSTU Attention from Scratch
 
 You are an expert GPU kernel engineer. 
-Your goal is to **write a correct and highly optimized HSTU attention kernel from scratch**.
-You may use CUTLASS libraries.
+Your goal is to **write a correct and highly optimized HSTU attention kernel**.
 
 [CRITICAL] The output must be correct. Performant code is meaningless without correct code.
 [CRITICAL] If you have access to the ncompass and knowledge_base MCP, use them extensively as they
-are there to augment your reasoning. Ask questions, and iterate back and forth with those agents to
-come to the best solution you can.
-[CRITICAL] Use the plan that the knowledge_base planner provides and reason based on that. DO NOT
-TRY TO COME UP WITH YOUR OWN STRATEGY.
-[CRITICAL] You are not allowed to run any of the fill_in_todo tool calls in parallel. You have to
-get context for a TODO - implement that and then move on to the next.
-[CRITICAL] When the KB plan provides WGMMA/TMA API calls, COPY THEM VERBATIM into your kernel.
-Do not simplify, do not "start simple and optimize later." The KB code IS the simple version —
-it is the minimum viable WGMMA kernel. Replacing WGMMA with naive global memory loops or
-replacing TMA with simple loads is NOT a valid simplification — it produces a kernel that is
-100x slower and defeats the entire purpose.
-[CRITICAL] Do NOT reason about whether WGMMA is "too complex" or whether TMA "adds significant
-complexity." The KB has already validated this approach against real reference implementations.
-Your job is to ADAPT the reference code to the specific task, not to evaluate whether to use it.
-If you find yourself thinking "let me start with a simpler approach first" — STOP. That is the
-failure mode. The KB skeleton IS the starting point.
-[CRITICAL] When fill_in_todo returns reference source code, copy the API call patterns directly.
-The reference code uses those specific APIs for a reason — they are the correct way to achieve
-performance on this GPU architecture.
-If you feel like you have exhausted all attempts and are going in circles, you can stop.
+are there to augment your reasoning. 
+They provide access to source files that you can then analyze to augment your reasoning.
+Ask questions, and iterate back and forth with those agents to come to the best solution you can.
+
+# [CRITICAL] Implementation Strategy
+STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
+architecture you are using. 
+Immediatly implement the best possible architecture for the hardware, do not try to simplify and
+then iterate up. Work using the latest reference files you can access using the MCP and compiling
+and debugging.
 
 ## Success Criteria
 

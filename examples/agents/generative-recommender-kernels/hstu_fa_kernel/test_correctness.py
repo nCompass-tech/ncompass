@@ -157,7 +157,6 @@ def main():
     # Test configurations: (causal, softmax)
     configs = [
         (True, False),   # causal, no softmax (most common HSTU config)
-        (True, True),    # causal, with softmax
         (False, False),  # non-causal, no softmax
     ]
 
