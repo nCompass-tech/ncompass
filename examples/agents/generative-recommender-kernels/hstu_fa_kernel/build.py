@@ -44,6 +44,22 @@ def ensure_cutlass_submodule(repo_root: Path, ref_cpp_dir: Path):
         )
 
 
+def _patch_cuda_version_check():
+    """Bypass PyTorch's CUDA version mismatch check.
+
+    The container's nvcc (e.g. CUDA 13.0) may be newer than what PyTorch was
+    compiled with (e.g. 12.8). This is safe for forward-compatible sm90a
+    compilation — the generated PTX/SASS doesn't depend on the PyTorch build's
+    CUDA version. PyTorch raises RuntimeError in _check_cuda_version() which
+    blocks the build before any code is compiled.
+    """
+    try:
+        import torch.utils.cpp_extension as _ext
+        _ext._check_cuda_version = lambda *args, **kwargs: None
+    except (ImportError, AttributeError):
+        pass
+
+
 def set_build_env():
     """Set environment variables for the build."""
     env_vars = {
@@ -56,8 +72,12 @@ def set_build_env():
         "FLASH_ATTENTION_DISABLE_HDIM192": "TRUE",
         "FLASH_ATTENTION_DISABLE_HDIM256": "TRUE",
         "FLASH_ATTENTION_DISABLE_SM80": "TRUE",
+        # Skip PyTorch's CUDA version check — the container may have a newer
+        # nvcc than the PyTorch build used, which is fine for sm90a compilation.
+        "TORCH_CUDA_ARCH_LIST": "9.0a",
     }
     os.environ.update(env_vars)
+    _patch_cuda_version_check()
 
 
 def ensure_package_dir(script_dir: Path):

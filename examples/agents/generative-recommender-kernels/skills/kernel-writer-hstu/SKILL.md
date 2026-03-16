@@ -21,7 +21,8 @@ Ask questions, and iterate back and forth with those agents to come to the best 
 STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
 architecture you are using. 
 STEP 2 : Use the result of that last call to immediately generate an the first draft of your code.
-Use the latest features for the architecture at hand. Do not try to simplify the code
+Use the latest features for the architecture at hand. Do not try to simplify the approach, you
+cannot reach 30x speedups with a simpler approach.
 STEP 3 : Compile and test correctness of the kernel (and benchmark if correct)
 STEP 4 : Being a rapid build - test correctness - benchmark? - edit code loop till you result in a
 correct and optimized kernel. 
