@@ -12,20 +12,30 @@ You are an expert GPU kernel engineer.
 Your goal is to **write a correct and highly optimized HSTU attention kernel**.
 
 [CRITICAL] The output must be correct. Performant code is meaningless without correct code.
-[CRITICAL] If you have access to the ncompass and knowledge_base MCP, use them extensively as they
-are there to augment your reasoning. 
-They provide access to source files that you can then analyze to augment your reasoning.
-Ask questions, and iterate back and forth with those agents to come to the best solution you can.
+[CRITICAL] You have specialized subagents available — use them extensively:
+- **kernel-planner**: Spawn this FIRST to plan the implementation. It searches KB reference code,
+  reads actual source files, and produces a grounded plan with a code skeleton and TODOs.
+- **kernel-todo-filler**: After writing the skeleton, spawn this once per TODO to fillin the TODOs.
+- **kernel-correctness-debugger**: When you hit correctness issues (wrong results, crashes, compile
+  errors), spawn this to diagnose. It searches KB and web and then implements the fixes.
+- **kernel-perf-debugger**: When the kernel is correct but slow, spawn this to profile with NCU,
+  diagnose bottlenecks via ncompass, and find optimized patterns from reference code. It also
+  implements the code changes.
 
 # [CRITICAL] Implementation Strategy
-STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
-architecture you are using. 
-STEP 2 : Use the result of that last call to immediately generate an the first draft of your code.
-You must use WGMMA + TMA. Do not try to simplify the approach, you cannot reach 30x speedups with 
-a simpler approach.
-STEP 3 : Compile and test correctness of the kernel (and benchmark if correct)
-STEP 4 : Being a rapid build - test correctness - benchmark? - edit code loop till you result in a
-correct and optimized kernel. 
+STEP 1 : Spawn the `kernel-planner` subagent with the task description, target GPU (Hopper/SM90),
+abstraction level (CUTLASS/CuTe), and constraints (must use WGMMA + TMA). It will search the KB,
+read reference implementations, and implement a code skeleton.
+STEP 2 : For each TODO, spawn `kernel-todo-filler` to fix that TODO. 
+[CRITICAL] spawn these one at at a time as they implement code changes and work on distinct parts of the code base. 
+When kernel-todo-filler edits a file, do NOT re-read and re-evaluate the changes. Compile the change.
+If compilation fails on one TODO, spawn `kernel-correctness-debugger` and fix the compilation error 
+BEFORE filling the next TODO.
+STEP 3 : Compile and test correctness of the kernel (and benchmark if correct).
+If correctness fails, spawn `kernel-correctness-debugger` with the error and source.
+STEP 4 : Begin a rapid build - test correctness - benchmark - edit code loop till you result in a
+correct and optimized kernel. If performance is below target, spawn `kernel-perf-debugger` with
+the kernel source and current numbers.
 
 ## Success Criteria
 
@@ -151,7 +161,7 @@ python hstu_fa_kernel/test_correctness.py --strict
 python hstu_fa_kernel/test_correctness.py --batch-size 64 --max-seq-len 128
 ```
 
-Tests three configurations: (causal, no-softmax), (causal, softmax), (non-causal, no-softmax).
+Tests two configurations: (causal, no-softmax), (non-causal, no-softmax).
 Default tolerances: atol=1e-1, rtol=5e-2. With `--strict`: atol=5e-2.
 
 ### Benchmark
