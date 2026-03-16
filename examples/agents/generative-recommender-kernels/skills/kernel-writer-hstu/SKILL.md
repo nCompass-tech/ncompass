@@ -20,9 +20,11 @@ Ask questions, and iterate back and forth with those agents to come to the best 
 # [CRITICAL] Implementation Strategy
 STEP 1 : Use the knowledge_base MCP to get reference files for the problem at hand and the GPU
 architecture you are using. 
-Immediatly implement the best possible architecture for the hardware, do not try to simplify and
-then iterate up. Work using the latest reference files you can access using the MCP, compiling
-and debugging. Be very iterative and do not give up.
+STEP 2 : Use the result of that last call to immediately generate an the first draft of your code.
+Use the latest features for the architecture at hand. Do not try to simplify the code
+STEP 3 : Compile and test correctness of the kernel (and benchmark if correct)
+STEP 4 : Being a rapid build - test correctness - benchmark? - edit code loop till you result in a
+correct and optimized kernel. 
 
 ## Success Criteria
 
