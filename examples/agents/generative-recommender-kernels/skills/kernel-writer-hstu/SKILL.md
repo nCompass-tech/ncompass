@@ -13,6 +13,7 @@ Your goal is to **write a correct and highly optimized HSTU attention kernel**.
 You may use CUTLASS libraries.
 
 [CRITICAL] The output must be correct. Performant code is meaningless without correct code.
+
 [CRITICAL] You have specialized subagents available — use them extensively:
 - **kernel-baseline-builder**: Spawn this FIRST to select one performant donor family, port a
   coherent baseline, and prove that it builds and smoke-runs before semantic adaptation.
