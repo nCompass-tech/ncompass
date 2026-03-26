@@ -28,17 +28,17 @@ Let the data guide you.
 
 ## Preflight
 
-Before doing anything else, check which MCPs are configured. Try each one —
-if a tool is not available (i.e. the tool doesn't exist), that's fine, skip it.
-But if a tool IS available and fails when called, **abort the run** — a
-configured-but-broken MCP means the environment is misconfigured.
+Before doing anything else, check which MCPs are configured. **Call each tool
+directly** — do NOT use ToolSearch to discover tools (MCP tools are lazy-loaded
+and may not appear in ToolSearch results).
 
-1. **ncompass**: try calling `check_auth`.
-   - Tool not found → no ncompass available, proceed without it.
-   - Tool exists but returns an error → **abort the run**.
-2. **knowledge_bank**: try calling `search_kb` with a trivial query (e.g. `"cuda graphs"`).
-   - Tool not found → no KB available, proceed without it.
-   - Tool exists but errors or returns zero results → **abort the run**.
+1. **ncompass**: call `mcp__ncompass__check_auth` (no arguments).
+   - Returns a result → ncompass is available.
+   - Tool doesn't exist error → no ncompass, proceed without it.
+2. **knowledge_bank**: call `mcp__knowledge_bank__search_kb` with query `"cuda graphs"`.
+   - Returns results → KB is available.
+   - Tool doesn't exist error → no KB, proceed without it.
+   - Tool exists but returns zero results or errors → **abort the run**.
 
 Record which MCPs are available. This determines your workflow:
 - **Both available**: full loop (profile → analyze via ncompass → search KB → implement)
