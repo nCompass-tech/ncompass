@@ -17,23 +17,50 @@ synchronization, poor CPU-GPU overlap, etc.
 [CRITICAL] The output must remain correct. Every optimization must pass
 `test_correctness.py` before benchmarking.
 
-[CRITICAL] You have access to **ncompass MCP** (trace analysis) and
+[CRITICAL] If you have access to **ncompass MCP** (trace analysis) and
 **knowledge_bank MCP** (curated docs on torch.compile, CUDA graphs, Triton,
-etc.). Use them extensively — they are there to augment your reasoning.
+etc.), use them extensively — they are there to augment your reasoning.
 
 [CRITICAL] Do NOT hard-code optimization strategies from prior knowledge.
-Profile first, identify the bottleneck, search the KB for techniques that
-address it, then implement. Let the data guide you.
+Profile first, identify the bottleneck, then implement. If the knowledge_bank
+MCP is available, search it for techniques that address the observed bottleneck.
+Let the data guide you.
 
 ## Preflight
 
-Before doing anything else, verify both MCPs are reachable:
+Before doing anything else, check which MCPs are configured. Try each one —
+if a tool is not available (i.e. the tool doesn't exist), that's fine, skip it.
+But if a tool IS available and fails when called, **abort the run** — a
+configured-but-broken MCP means the environment is misconfigured.
 
-1. **ncompass**: call `check_auth`. If it fails or returns an auth error, **abort the run**.
-2. **knowledge_bank**: call `search_kb` with a trivial query (e.g. `"cuda graphs"`).
-   If it errors or returns zero results, **abort the run**.
+1. **ncompass**: try calling `check_auth`.
+   - Tool not found → no ncompass available, proceed without it.
+   - Tool exists but returns an error → **abort the run**.
+2. **knowledge_bank**: try calling `search_kb` with a trivial query (e.g. `"cuda graphs"`).
+   - Tool not found → no KB available, proceed without it.
+   - Tool exists but errors or returns zero results → **abort the run**.
 
-Do not proceed until both checks pass.
+Record which MCPs are available. This determines your workflow:
+- **Both available**: full loop (profile → analyze via ncompass → search KB → implement)
+- **ncompass only**: profile → analyze via ncompass → implement (no KB search)
+- **KB only**: profile manually (read nsys output) → search KB → implement
+- **Neither**: profile manually → implement using your own reasoning
+
+## What this task is NOT
+
+[CRITICAL] Read this carefully:
+
+- You are **NOT** writing CUDA kernels. Do not write `.cu`, `.h`, or Triton kernel code.
+- You are **NOT** modifying the HSTU attention implementation. The custom kernel is
+  pre-built and loaded via `--kernel triton`. It is not your concern.
+- You are **NOT** replacing existing kernels with hand-written alternatives.
+
+Your job is **system-level optimization**: torch.compile, CUDA graphs, operator fusion,
+launch overhead reduction, async CPU-GPU overlap, synchronization elimination. These are
+Python-level changes in `model_runner/optimizations/`.
+
+If you find yourself writing GPU kernel code, you have misunderstood the task. Stop and
+re-read this section.
 
 ## Session ID
 
@@ -138,7 +165,7 @@ For baseline profiling, use `--mode baseline`.
 ## Optimization Loop
 
 ```
-0. Preflight — verify ncompass + knowledge_bank MCPs (see above)
+0. Preflight — check which MCPs are available (see above)
 1. Profile with nsys (baseline first, then optimized)
 2. Analyze trace via ncompass MCP
    → Identify: launch overhead %, sync overhead %, idle gaps, kernel count, iteration structure
