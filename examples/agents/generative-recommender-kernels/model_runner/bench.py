@@ -19,6 +19,7 @@ import json
 import statistics
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -100,6 +101,8 @@ def parse_args() -> argparse.Namespace:
                         help="Compare against a saved baseline JSON")
     parser.add_argument("--profile", action="store_true",
                         help="Enable cudaProfilerApi markers (for nsys capture)")
+    parser.add_argument("--notes-dir", type=str, default=None,
+                        help="Auto-write last_bench.json to this directory (default: .notes/ if it exists)")
     return parser.parse_args()
 
 
@@ -165,6 +168,22 @@ def main():
     if stats["p95_ms"] is not None:
         print(f"  p95     {stats['p95_ms']:>8.3f} ms")
     print(f"{'='*60}")
+
+    # --- Auto-capture to .notes/ ---
+    notes_dir = Path(args.notes_dir) if args.notes_dir else Path("model_runner/.notes")
+    if notes_dir.is_dir():
+        note = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **stats,
+        }
+        if args.compare_baseline:
+            ref_path = Path(args.compare_baseline)
+            if ref_path.exists():
+                ref = json.loads(ref_path.read_text())
+                note["baseline_ref"] = str(ref_path)
+                note["baseline_median_ms"] = ref["median_ms"]
+                note["speedup"] = round(ref["median_ms"] / stats["median_ms"], 2) if stats["median_ms"] > 0 else None
+        (notes_dir / "last_bench.json").write_text(json.dumps(note, indent=2) + "\n")
 
     # --- Save ---
     if args.save_baseline:

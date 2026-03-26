@@ -10,7 +10,9 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -86,6 +88,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--atol", type=float, default=1e-3)
     parser.add_argument("--rtol", type=float, default=1e-3)
+    parser.add_argument("--notes-dir", type=str, default=None,
+                        help="Auto-write last_correctness.json to this directory (default: .notes/ if it exists)")
     return parser.parse_args()
 
 
@@ -119,6 +123,7 @@ def main():
         sys.exit(1)
 
     all_passed = True
+    notes_records: list[dict] = []
 
     for mode_name in modes:
         print(f"\nTesting mode: {mode_name}")
@@ -156,6 +161,21 @@ def main():
             print(f"  {r['name']:20s} {status}  max_diff={r['max_diff']:.6f}{note}")
 
         print(f"  {'PASSED' if mode_passed else 'FAILED'}")
+        notes_records.append({
+            "mode": mode_name,
+            "overall": "PASS" if mode_passed else "FAIL",
+            "results": [{k: v for k, v in r.items() if k != "note" or v} for r in results],
+        })
+
+    # --- Auto-capture to .notes/ ---
+    notes_dir = Path(args.notes_dir) if args.notes_dir else Path("model_runner/.notes")
+    if notes_dir.is_dir() and notes_records:
+        note = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall": "PASS" if all_passed else "FAIL",
+            "modes": notes_records,
+        }
+        (notes_dir / "last_correctness.json").write_text(json.dumps(note, indent=2) + "\n")
 
     print(f"\n{'='*60}")
     print(f"Overall: {'ALL PASSED' if all_passed else 'SOME FAILED'}")

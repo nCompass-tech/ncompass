@@ -162,22 +162,114 @@ nsys profile \
 
 For baseline profiling, use `--mode baseline`.
 
+## Note-Taking
+
+You maintain a `.notes/` directory to track your optimization history. This is
+critical for long-running sessions and for briefing subagents.
+
+### File layout
+
+```
+.notes/
+  state.json              # Current session state (you write/update this)
+  iterations.jsonl        # Append-only log of every optimization attempt
+  hypotheses.md           # Your ranked queue of what to try next
+  bottleneck.md           # Latest profiling analysis summary
+  methodology.md          # Benchmark methodology decisions
+  last_bench.json         # Auto-written by bench.py (do not edit)
+  last_correctness.json   # Auto-written by test_correctness.py (do not edit)
+```
+
+`last_bench.json` and `last_correctness.json` are auto-written by the
+benchmark and correctness scripts. You do not need to transcribe results
+manually — read these files instead.
+
+### Session startup (before step 0)
+
+```
+If .notes/state.json exists → resumed session:
+  - Read state.json for current metrics and iteration count
+  - Read tail of iterations.jsonl for recent history
+  - Read hypotheses.md for what to try next
+  - Verify current state matches recorded metrics (run a quick benchmark)
+
+If .notes/state.json does not exist → fresh session:
+  - Create .notes/ directory if missing
+  - Save baseline benchmark: python model_runner/bench.py --save-baseline model_runner/baselines/ref.json
+  - Write state.json with baseline metrics, iteration 0
+  - Write methodology.md with benchmark methodology decisions
+    (warmup iters, bench iters, distribution flags, tolerance thresholds)
+  - Write hypotheses.md with initial ideas (informed by first profile)
+```
+
+### `state.json` schema
+
+```json
+{
+  "session_id": "<from .session_id>",
+  "iteration": 0,
+  "baseline_median_ms": 12.450,
+  "best_median_ms": 12.450,
+  "best_mode": "baseline",
+  "best_commit": "<sha>",
+  "current_bottleneck": "<free text — updated after each profile>",
+  "mcps_available": [],
+  "working_optimizations": []
+}
+```
+
+### After each iteration (step 10.5)
+
+After committing, update notes:
+
+1. **Append** one JSON line to `iterations.jsonl`:
+   ```json
+   {"iter": 1, "hypothesis": "...", "mode": "...", "correctness": "PASS", "median_ms": 10.23, "baseline_ms": 12.45, "speedup": "1.22x", "verdict": "KEEP|REVERT", "commit": "<sha>", "root_cause": "...(if reverted)"}
+   ```
+   Read `last_bench.json` and `last_correctness.json` for the numbers — do not
+   transcribe from terminal output.
+
+2. **Update** `state.json` with new iteration count and best metrics.
+
+3. **Rewrite** `hypotheses.md` — remove what was tried, add new ideas discovered
+   during this iteration.
+
+4. **Overwrite** `bottleneck.md` if profiling was done this iteration.
+
+5. `git add .notes/` — include in the commit.
+
+### Subagent briefing
+
+When spawning any subagent, include in its prompt:
+- The full contents of `.notes/state.json`
+- The last 5 lines of `.notes/iterations.jsonl`
+- If the subagent does profiling work: contents of `.notes/bottleneck.md`
+- The instruction: "Before attempting any optimization, read
+  `.notes/iterations.jsonl` to check if it has already been tried."
+
+### Before attempting an optimization
+
+Grep `iterations.jsonl` for keywords related to your hypothesis. If a similar
+approach was tried and reverted, read the `root_cause` field before proceeding.
+
 ## Optimization Loop
 
 ```
-0. Preflight — check which MCPs are available (see above)
-1. Profile with nsys (baseline first, then optimized)
-2. Analyze trace via ncompass MCP
-   → Identify: launch overhead %, sync overhead %, idle gaps, kernel count, iteration structure
-3. Search knowledge_bank MCP for techniques addressing the observed bottleneck
-4. Formulate ONE hypothesis
-5. Implement ONE optimization in model_runner/optimizations/
-6. Run correctness test
-7. Run benchmark (compare against baseline)
-8. Profile the optimized path with nsys
-9. Diff traces via ncompass MCP (analyze_nsys_diff: before vs after)
-   → Quantify: kernel count change, launch overhead reduction, latency change
+-1. Read .notes/ — recover session state (see Note-Taking above)
+ 0. Preflight — check which MCPs are available (see above)
+ 1. Profile with nsys (baseline first, then optimized)
+ 2. Analyze trace via ncompass MCP
+    → Identify: launch overhead %, sync overhead %, idle gaps, kernel count, iteration structure
+ 3. Search knowledge_bank MCP for techniques addressing the observed bottleneck
+ 4. Formulate ONE hypothesis
+ 5. Implement ONE optimization in model_runner/optimizations/
+ 6. Run correctness test
+ 7. Run benchmark (compare against baseline)
+ 8. Profile the optimized path with nsys
+ 9. Diff traces via ncompass MCP (analyze_nsys_diff: before vs after)
+    → Quantify: kernel count change, launch overhead reduction, latency change
 10. Git commit with results
+10.5. Update .notes/ (see Note-Taking above)
 11. If target not met → go to step 2 with the new trace
 ```
 
@@ -190,6 +282,7 @@ Each iteration is:
 4. One benchmark run
 5. One profile + analysis, or an explicit reason profiling is not needed yet
 6. One git commit
+7. One notes update
 
 No stacking multiple untested optimizations. No intuition-driven edits without
 profiling evidence.
