@@ -303,8 +303,80 @@ approach was tried and reverted, read the `root_cause` field before proceeding.
     → Quantify: kernel count change, launch overhead reduction, latency change
 10. Git commit with results
 10.5. Update .notes/ (see Note-Taking above)
-11. If target not met → go to step 2 with the new trace
+11. Check stop conditions (see below) → if triggered, go to Wrap-Up
+12. Otherwise → go to step 2 with the new trace
 ```
+
+### Stop Conditions
+
+After each iteration, check whether any of these conditions are met.
+If so, **stop the optimization loop** and proceed to Wrap-Up.
+
+1. **Diminishing returns** — The last 3 consecutive iterations each produced
+   <2% improvement over the previous best. This means cumulative gain across
+   all 3 was negligible. The optimization space is exhausted.
+
+2. **Time limit** — 2 hours have elapsed since the session started (check
+   against the timestamp in `state.json` or `.session_id` creation time).
+   Finish the current iteration, then stop.
+
+3. **Regression streak** — 3 consecutive iterations were reverted (verdict
+   = REVERT) with no successful optimization in between. The agent is stuck
+   and further attempts are unlikely to succeed without a fundamentally
+   different approach.
+
+4. **Correctness wall** — 5 consecutive correctness failures on different
+   optimization approaches. Stop and report rather than continuing to
+   generate broken code.
+
+### Wrap-Up
+
+When any stop condition triggers:
+
+1. Ensure the **best-performing mode** is the current state of
+   `model_runner/optimizations/`. If you reverted the last iteration,
+   confirm the best mode's file is still present and passes correctness.
+
+2. Run a final benchmark of the best mode:
+   ```bash
+   python model_runner/bench.py --max-seq-len 256 --mode <best_mode> --compare-baseline model_runner/baselines/ref.json --bench-iters 30
+   ```
+
+3. Write `.agent/notes/summary.md` with:
+   ```markdown
+   # Session Summary
+
+   **Session ID:** <id>
+   **Stop reason:** <which condition triggered>
+   **Total iterations:** <N>
+   **Duration:** <minutes>
+
+   ## Results
+
+   | Metric | Value |
+   |--------|-------|
+   | Baseline median | X.XX ms |
+   | Best median | X.XX ms |
+   | Best mode | <name> |
+   | Speedup | X.XXx |
+
+   ## Optimizations kept
+   - <mode>: <description> (X.XXx speedup)
+
+   ## Optimizations reverted
+   - <mode>: <description> — <root_cause>
+
+   ## Remaining hypotheses
+   - <ideas not yet tried, from hypotheses.md>
+   ```
+
+4. Update `state.json` with `"status": "complete"` and the stop reason.
+
+5. Git commit all notes:
+   ```bash
+   git add .agent/notes/ model_runner/optimizations/
+   git commit -m "Session complete: <best_speedup>x speedup (<stop_reason>)"
+   ```
 
 ### Loop Discipline
 
@@ -351,10 +423,6 @@ results). Search KB troubleshooting docs before attempting fixes.
 ### Correctness regression
 If outputs diverge beyond tolerance (atol=1e-3, rtol=1e-3), **revert
 immediately**. Do not stack optimizations on a broken base. Diagnose first.
-
-### Performance plateau
-If the last 2 iterations showed <2% improvement, you must profile and analyze
-via ncompass before making more changes. Do not guess.
 
 ## Version Control
 
