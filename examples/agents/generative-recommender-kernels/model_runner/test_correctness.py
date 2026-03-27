@@ -116,6 +116,18 @@ def main():
         baseline_out = model(batch.uih_features_kjt, batch.candidates_features_kjt)
     torch.cuda.synchronize()
 
+    # Generate a SECOND batch with different random data. Optimized modes are
+    # tested on this fresh batch so that input-caching tricks (data_ptr
+    # memoization, Python `is` checks, etc.) cannot game the test by returning
+    # stale results from the first batch.
+    print("Generating fresh test batch for optimized modes...")
+    test_batch = generate_batch(hstu_config, args.batch_size, device)
+
+    print("Computing baseline on test batch...")
+    with torch.no_grad():
+        baseline_out_test = model(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
+    torch.cuda.synchronize()
+
     # --- Test modes ---
     modes = discover_modes() if args.all else [args.mode]
     if not modes:
@@ -134,6 +146,7 @@ def main():
             all_passed = False
             continue
 
+        # apply() receives the original batch for warmup/capture setup.
         try:
             forward_fn = apply_fn(model, batch, hstu_config)
         except Exception as e:
@@ -141,16 +154,19 @@ def main():
             all_passed = False
             continue
 
+        # Call with the FRESH test batch — different object, different data_ptr,
+        # different tensor contents. Any mode that ignores its arguments or
+        # returns cached results from the setup batch will fail here.
         try:
             with torch.no_grad():
-                opt_out = forward_fn(batch.uih_features_kjt, batch.candidates_features_kjt)
+                opt_out = forward_fn(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
             torch.cuda.synchronize()
         except Exception as e:
             print(f"  FAIL — forward raised: {e}")
             all_passed = False
             continue
 
-        results = _compare_outputs(baseline_out, opt_out, atol=args.atol, rtol=args.rtol)
+        results = _compare_outputs(baseline_out_test, opt_out, atol=args.atol, rtol=args.rtol)
         mode_passed = all(r["pass"] for r in results)
         if not mode_passed:
             all_passed = False
