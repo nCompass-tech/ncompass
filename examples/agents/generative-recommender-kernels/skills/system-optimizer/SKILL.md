@@ -14,6 +14,28 @@ iteration latency of the DLRM-v3 + HSTU inference pipeline by identifying and
 fixing system-level bottlenecks — launch overhead, missing fusion, unnecessary
 synchronization, poor CPU-GPU overlap, etc.
 
+## Target Workload
+
+[CRITICAL] You are optimizing for **short sequence lengths** (`--max-seq-len 256`).
+All benchmarks, correctness tests, and profiling runs MUST use `--max-seq-len 256`.
+
+At short sequence lengths, the HSTU attention kernel no longer dominates wall time.
+Instead, system-level overhead becomes the primary bottleneck: kernel launch
+overhead, CPU-GPU synchronization, operator fragmentation, and poor overlap.
+This is where your optimizations have the most impact.
+
+**Every command** that runs bench.py, test_correctness.py, or profile_nsys.py
+must include `--max-seq-len 256`. For example:
+
+```bash
+python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
+python model_runner/test_correctness.py --max-seq-len 256 --mode <your_mode>
+python model_runner/bench.py --max-seq-len 256 --mode <your_mode> --compare-baseline model_runner/baselines/ref.json
+```
+
+Do NOT run with the default max_seq_len (16384). At 16K, attention dominates at
+~75% of GPU time and there is almost no system-level overhead to optimize.
+
 [CRITICAL] The output must remain correct. Every optimization must pass
 `test_correctness.py` before benchmarking.
 
@@ -129,21 +151,21 @@ The callable must return the same output format as the baseline model:
 ### Save baseline
 
 ```bash
-python model_runner/bench.py --save-baseline model_runner/baselines/ref.json
+python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
 ```
 
 ### Correctness test
 
 ```bash
-python model_runner/test_correctness.py --mode <your_mode>
-python model_runner/test_correctness.py --all
+python model_runner/test_correctness.py --max-seq-len 256 --mode <your_mode>
+python model_runner/test_correctness.py --max-seq-len 256 --all
 ```
 
 ### Benchmark
 
 ```bash
-python model_runner/bench.py --mode <your_mode>
-python model_runner/bench.py --mode <your_mode> --compare-baseline model_runner/baselines/ref.json
+python model_runner/bench.py --max-seq-len 256 --mode <your_mode>
+python model_runner/bench.py --max-seq-len 256 --mode <your_mode> --compare-baseline model_runner/baselines/ref.json
 ```
 
 ### Profile with nsys
@@ -157,20 +179,22 @@ nsys profile \
   -tcuda,nvtx \
   -o model_runner/nsys_traces/<name> \
   --force-overwrite=true \
-  python -u model_runner/bench.py --mode <your_mode> --profile --bench-iters 3
+  python -u model_runner/bench.py --max-seq-len 256 --mode <your_mode> --profile --bench-iters 3
 ```
 
 For baseline profiling, use `--mode baseline`.
 
 ## Note-Taking
 
-You maintain a `.notes/` directory to track your optimization history. This is
-critical for long-running sessions and for briefing subagents.
+You maintain a `.agent/notes/` directory to track your optimization history.
+This is critical for long-running sessions and for briefing subagents. This
+directory lives alongside `.agent/agent.log` and is automatically created by
+the setup script.
 
 ### File layout
 
 ```
-.notes/
+.agent/notes/
   state.json              # Current session state (you write/update this)
   iterations.jsonl        # Append-only log of every optimization attempt
   hypotheses.md           # Your ranked queue of what to try next
@@ -187,15 +211,15 @@ manually — read these files instead.
 ### Session startup (before step 0)
 
 ```
-If .notes/state.json exists → resumed session:
+If .agent/notes/state.json exists → resumed session:
   - Read state.json for current metrics and iteration count
   - Read tail of iterations.jsonl for recent history
   - Read hypotheses.md for what to try next
   - Verify current state matches recorded metrics (run a quick benchmark)
 
-If .notes/state.json does not exist → fresh session:
-  - Create .notes/ directory if missing
-  - Save baseline benchmark: python model_runner/bench.py --save-baseline model_runner/baselines/ref.json
+If .agent/notes/state.json does not exist → fresh session:
+  - Create .agent/notes/ directory if missing
+  - Save baseline benchmark: python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
   - Write state.json with baseline metrics, iteration 0
   - Write methodology.md with benchmark methodology decisions
     (warmup iters, bench iters, distribution flags, tolerance thresholds)
@@ -236,16 +260,16 @@ After committing, update notes:
 
 4. **Overwrite** `bottleneck.md` if profiling was done this iteration.
 
-5. `git add .notes/` — include in the commit.
+5. `git add .agent/notes/` — include in the commit.
 
 ### Subagent briefing
 
 When spawning any subagent, include in its prompt:
-- The full contents of `.notes/state.json`
-- The last 5 lines of `.notes/iterations.jsonl`
-- If the subagent does profiling work: contents of `.notes/bottleneck.md`
+- The full contents of `.agent/notes/state.json`
+- The last 5 lines of `.agent/notes/iterations.jsonl`
+- If the subagent does profiling work: contents of `.agent/notes/bottleneck.md`
 - The instruction: "Before attempting any optimization, read
-  `.notes/iterations.jsonl` to check if it has already been tried."
+  `.agent/notes/iterations.jsonl` to check if it has already been tried."
 
 ### Before attempting an optimization
 
@@ -255,7 +279,7 @@ approach was tried and reverted, read the `root_cause` field before proceeding.
 ## Optimization Loop
 
 ```
--1. Read .notes/ — recover session state (see Note-Taking above)
+-1. Read .agent/notes/ — recover session state (see Note-Taking above)
  0. Preflight — check which MCPs are available (see above)
  1. Profile with nsys (baseline first, then optimized)
  2. Analyze trace via ncompass MCP

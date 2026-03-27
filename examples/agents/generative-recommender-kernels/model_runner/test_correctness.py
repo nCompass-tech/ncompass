@@ -89,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--atol", type=float, default=1e-3)
     parser.add_argument("--rtol", type=float, default=1e-3)
     parser.add_argument("--notes-dir", type=str, default=None,
-                        help="Auto-write last_correctness.json to this directory (default: .notes/ if it exists)")
+                        help="Auto-write last_correctness.json to this directory (default: .agent/notes/ if it exists)")
     return parser.parse_args()
 
 
@@ -167,8 +167,8 @@ def main():
             "results": [{k: v for k, v in r.items() if k != "note" or v} for r in results],
         })
 
-    # --- Auto-capture to .notes/ ---
-    notes_dir = Path(args.notes_dir) if args.notes_dir else Path("model_runner/.notes")
+    # --- Auto-capture to .agent/notes/ ---
+    notes_dir = Path(args.notes_dir) if args.notes_dir else Path(".agent/notes")
     if notes_dir.is_dir() and notes_records:
         note = {
             "timestamp": datetime.now(timezone.utc).isoformat(),

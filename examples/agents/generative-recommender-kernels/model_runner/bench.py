@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile", action="store_true",
                         help="Enable cudaProfilerApi markers (for nsys capture)")
     parser.add_argument("--notes-dir", type=str, default=None,
-                        help="Auto-write last_bench.json to this directory (default: .notes/ if it exists)")
+                        help="Auto-write last_bench.json to this directory (default: .agent/notes/ if it exists)")
     return parser.parse_args()
 
 
@@ -169,8 +169,8 @@ def main():
         print(f"  p95     {stats['p95_ms']:>8.3f} ms")
     print(f"{'='*60}")
 
-    # --- Auto-capture to .notes/ ---
-    notes_dir = Path(args.notes_dir) if args.notes_dir else Path("model_runner/.notes")
+    # --- Auto-capture to .agent/notes/ ---
+    notes_dir = Path(args.notes_dir) if args.notes_dir else Path(".agent/notes")
     if notes_dir.is_dir():
         note = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
