@@ -147,6 +147,12 @@ def apply(model, batch, hstu_config, **kwargs) -> callable:
 The callable must return the same output format as the baseline model:
 `(user_emb, item_emb, hidden, mt_target_preds)`.
 
+**Important:** The `batch` argument is for setup only (e.g. CUDA graph capture,
+warmup). The returned callable will be invoked with **different** batches during
+benchmarking — different tensor objects with different data contents, though the
+same batch size. Do not assume the callable will see the same inputs it was
+set up with.
+
 ### What you do NOT edit
 
 - `run_model.py` — baseline model infrastructure

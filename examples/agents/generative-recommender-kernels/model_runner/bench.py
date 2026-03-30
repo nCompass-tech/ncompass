@@ -43,17 +43,23 @@ from optimizations import discover_modes, load_mode
 
 def _run_iters(
     forward_fn,
-    uih_features,
-    candidates_features,
+    batches: list[tuple],
     num_iters: int,
 ) -> list[float]:
-    """Run *num_iters* forward passes, return per-iteration latencies (seconds)."""
+    """Run *num_iters* forward passes, return per-iteration latencies (seconds).
+
+    Cycles through *batches* round-robin so that each iteration sees a different
+    input.  This prevents optimizations from caching/skipping work based on
+    input identity (data_ptr, Python ``is``, etc.).
+    """
+    n_batches = len(batches)
     latencies: list[float] = []
     with torch.no_grad():
-        for _ in range(num_iters):
+        for i in range(num_iters):
+            uih, cand = batches[i % n_batches]
             torch.cuda.synchronize()
             t0 = time.perf_counter()
-            forward_fn(uih_features, candidates_features)
+            forward_fn(uih, cand)
             torch.cuda.synchronize()
             latencies.append(time.perf_counter() - t0)
     return latencies
@@ -91,6 +97,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-seq-len", type=int, default=None)
     parser.add_argument("--warmup-iters", type=int, default=3)
     parser.add_argument("--bench-iters", type=int, default=10)
+    parser.add_argument("--bench-batches", type=int, default=5,
+                        help="Number of distinct batches to cycle through during benchmarking")
     parser.add_argument("--kernel", choices=["pytorch", "triton"], default="triton")
     parser.add_argument("--cache-dir", type=str,
                         default=str(Path(__file__).resolve().parent / ".model_cache"))
@@ -124,7 +132,19 @@ def main():
     kernel = HammerKernel.PYTORCH if args.kernel == "pytorch" else HammerKernel.TRITON
     model.set_hammer_kernel(kernel)
 
-    batch = generate_batch(hstu_config, args.batch_size, device)
+    # --- Batch generation ---
+    # Setup batch: used for apply() / CUDA graph capture only.
+    setup_batch = generate_batch(hstu_config, args.batch_size, device)
+
+    # Benchmark batches: distinct random batches cycled round-robin during
+    # measurement.  Using different batches each iteration prevents
+    # optimizations from caching/skipping work based on input identity.
+    n_bench_batches = max(1, args.bench_batches)
+    print(f"Pre-generating {n_bench_batches} benchmark batches...")
+    bench_batches: list[tuple] = []
+    for _ in range(n_bench_batches):
+        b = generate_batch(hstu_config, args.batch_size, device)
+        bench_batches.append((b.uih_features_kjt, b.candidates_features_kjt))
 
     # --- Build forward function ---
     if args.mode == "baseline":
@@ -132,22 +152,20 @@ def main():
             return model(uih, cand)
     else:
         apply_fn = load_mode(args.mode)
-        forward_fn = apply_fn(model, batch, hstu_config)
+        forward_fn = apply_fn(model, setup_batch, hstu_config)
 
-    # --- Warmup ---
+    # --- Warmup (uses setup batch — warms up compiled code / graph) ---
     print(f"Warmup ({args.warmup_iters} iters)...")
-    _run_iters(forward_fn, batch.uih_features_kjt, batch.candidates_features_kjt,
+    _run_iters(forward_fn,
+               [(setup_batch.uih_features_kjt, setup_batch.candidates_features_kjt)],
                args.warmup_iters)
 
-    # --- Benchmark ---
+    # --- Benchmark (cycles through distinct batches) ---
     if args.profile:
         torch.cuda.cudart().cudaProfilerStart()
 
-    print(f"Benchmarking ({args.bench_iters} iters)...")
-    latencies = _run_iters(
-        forward_fn, batch.uih_features_kjt, batch.candidates_features_kjt,
-        args.bench_iters,
-    )
+    print(f"Benchmarking ({args.bench_iters} iters, {n_bench_batches} batches)...")
+    latencies = _run_iters(forward_fn, bench_batches, args.bench_iters)
 
     if args.profile:
         torch.cuda.cudart().cudaProfilerStop()
