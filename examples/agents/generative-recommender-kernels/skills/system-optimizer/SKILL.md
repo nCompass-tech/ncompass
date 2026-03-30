@@ -299,7 +299,7 @@ approach was tried and reverted, read the `root_cause` field before proceeding.
  1. Profile with nsys (baseline first, then optimized)
  2. Analyze trace via ncompass MCP
     → Identify: launch overhead %, sync overhead %, idle gaps, kernel count, iteration structure
- 3. Search knowledge_bank MCP for techniques addressing the observed bottleneck
+ 3. Search knowledge_bank MCP for techniques addressing the observed bottleneck. Search repeatedly as you'll get different results each time.
  4. Formulate ONE hypothesis
  5. Implement ONE optimization in model_runner/optimizations/
  6. Run correctness test
@@ -318,7 +318,7 @@ approach was tried and reverted, read the `root_cause` field before proceeding.
 After each iteration, check whether any of these conditions are met.
 If so, **stop the optimization loop** and proceed to Wrap-Up.
 
-1. **Diminishing returns** — The last 3 consecutive iterations each produced
+1. **Diminishing returns** — The last 5 consecutive iterations each produced
    <2% improvement over the previous best. This means cumulative gain across
    all 3 was negligible. The optimization space is exhausted.
 
@@ -326,7 +326,7 @@ If so, **stop the optimization loop** and proceed to Wrap-Up.
    against the timestamp in `state.json` or `.session_id` creation time).
    Finish the current iteration, then stop.
 
-3. **Regression streak** — 3 consecutive iterations were reverted (verdict
+3. **Regression streak** — 5 consecutive iterations were reverted (verdict
    = REVERT) with no successful optimization in between. The agent is stuck
    and further attempts are unlikely to succeed without a fundamentally
    different approach.
