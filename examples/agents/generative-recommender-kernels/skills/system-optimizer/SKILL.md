@@ -120,6 +120,23 @@ trial-and-error.
 □ If regression → go to Step 7a (consult KB before reverting)
 ```
 
+### Step 8a: Judge optimization for overfitting [REQUIRED]
+
+Before profiling, spawn the `sys-optimization-judge` subagent to check for
+reward-hacking patterns (input caching, preprocess skipping, ignoring
+arguments). This is mandatory — do not skip it.
+
+```
+□ Spawn sys-optimization-judge with:
+    "Module: model_runner/optimizations/<mode>.py
+     Claimed speedup: <X.Xx>"
+□ Read the verdict: CLEAN, SUSPECT, or REJECT
+□ If REJECT → revert immediately, the optimization is invalid
+□ If SUSPECT → log the concern in iterations.jsonl, consider whether
+  the flagged pattern is essential to the approach or can be removed
+□ If CLEAN → proceed to Step 9
+```
+
 ### Step 9: Profile optimized path + diff [REQUIRED]
 
 This step is NOT optional. You MUST profile after every kept optimization.
