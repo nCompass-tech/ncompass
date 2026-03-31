@@ -16,6 +16,8 @@ x-ncompass-common: &ncompass-common
     args:
       - HOST_UID=${UID:-1000}
       - HOST_GID=${GID:-1000}
+      - VLLM_NIGHTLY=${VLLM_NIGHTLY:-0}
+      - PYTHON_VERSION=${PYTHON_VERSION:-3.10}
   image: ncompass-examples:latest
   privileged: true
   network_mode: host

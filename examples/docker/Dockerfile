@@ -15,6 +15,7 @@ SHELL ["/bin/bash", "-c"]
 ARG PYTHON_VERSION=3.10
 ARG HOST_UID=1000
 ARG HOST_GID=1000
+ARG VLLM_NIGHTLY=0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -120,8 +121,9 @@ RUN runuser -u ncuser -- cargo install flamegraph
 # ============================================================
 COPY requirements/ /tmp/requirements/
 RUN --mount=type=cache,target=/home/ncuser/.cache/uv,uid=${HOST_UID},gid=${HOST_GID} \
-    runuser -u ncuser -- uv pip install \
-        -r /tmp/requirements/base.txt \
+    if [ "$VLLM_NIGHTLY" = "1" ]; then BASE_REQS=base-nightly.txt; else BASE_REQS=base.txt; fi \
+    && runuser -u ncuser -- uv pip install \
+        -r /tmp/requirements/${BASE_REQS} \
         -r /tmp/requirements/dev.txt
 
 # ============================================================
@@ -135,6 +137,9 @@ RUN echo "set -o vi" >> /home/ncuser/.bashrc \
     && echo "source /opt/venv/bin/activate" >> /home/ncuser/.bashrc \
     && echo 'export PATH="/home/ncuser/.cargo/bin:$PATH"' >> /home/ncuser/.bashrc \
     && echo 'alias cuda-gdb="/usr/local/cuda/bin/cuda-gdb-full"' >> /home/ncuser/.bashrc \
+    && if [ "$VLLM_NIGHTLY" = "1" ]; then \
+        echo "export LD_PRELOAD=/usr/local/cuda/lib64/libcublas.so.$(echo $CUDA_VERSION | cut -d. -f1):/usr/local/cuda/lib64/libcublasLt.so.$(echo $CUDA_VERSION | cut -d. -f1)" >> /home/ncuser/.bashrc; \
+    fi \
     && chown ${HOST_UID}:${HOST_GID} /home/ncuser/.bashrc
 
 # Switch to ncuser for default operation
