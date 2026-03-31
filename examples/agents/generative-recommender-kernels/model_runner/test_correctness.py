@@ -4,7 +4,7 @@
 Examples:
   python model_runner/test_correctness.py --mode my_opt
   python model_runner/test_correctness.py --all
-  python model_runner/test_correctness.py --mode my_opt --atol 1e-2
+  python model_runner/test_correctness.py --all
 """
 
 from __future__ import annotations
@@ -41,12 +41,17 @@ def _compare_outputs(
     rtol: float,
 ) -> list[dict]:
     """Compare baseline and optimized outputs, return per-tensor results."""
-    names = ["user_emb", "item_emb", "hidden", "mt_target_preds"]
+    names = ["user_emb", "item_emb", "aux_losses", "mt_target_preds"]
     results = []
 
     for i, name in enumerate(names):
         base = baseline_out[i]
         opt = opt_out[i]
+
+        # Skip non-tensor outputs (e.g. aux_losses is a dict).
+        if not isinstance(base, torch.Tensor) or not isinstance(opt, torch.Tensor):
+            results.append({"name": name, "pass": True, "max_diff": 0.0, "note": "non-tensor, skipped"})
+            continue
 
         if base is None and opt is None:
             results.append({"name": name, "pass": True, "max_diff": 0.0, "note": "both None"})
@@ -86,8 +91,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-dir", type=str,
                         default=str(Path(__file__).resolve().parent / ".model_cache"))
     parser.add_argument("--no-cache", action="store_true")
-    parser.add_argument("--atol", type=float, default=1e-3)
-    parser.add_argument("--rtol", type=float, default=1e-3)
+    # Tolerance is fixed — do not relax. If an optimization fails at these
+    # thresholds, the optimization is wrong and must be reverted.
+    # atol=1e-3, rtol=1e-3
     parser.add_argument("--notes-dir", type=str, default=None,
                         help="Auto-write last_correctness.json to this directory (default: .agent/notes/ if it exists)")
     return parser.parse_args()
@@ -166,7 +172,7 @@ def main():
             all_passed = False
             continue
 
-        results = _compare_outputs(baseline_out_test, opt_out, atol=args.atol, rtol=args.rtol)
+        results = _compare_outputs(baseline_out_test, opt_out, atol=1e-3, rtol=1e-3)
         mode_passed = all(r["pass"] for r in results)
         if not mode_passed:
             all_passed = False

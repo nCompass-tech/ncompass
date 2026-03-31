@@ -146,6 +146,17 @@ def main():
         b = generate_batch(hstu_config, args.batch_size, device)
         bench_batches.append((b.uih_features_kjt, b.candidates_features_kjt))
 
+    # --- Correctness gate (non-baseline modes only) ---
+    if args.mode != "baseline":
+        notes_dir = Path(args.notes_dir) if args.notes_dir else Path(".agent/notes")
+        correctness_file = notes_dir / "last_correctness.json"
+        if correctness_file.is_file():
+            correctness = json.loads(correctness_file.read_text())
+            if correctness.get("overall") == "FAIL":
+                print(f"ERROR: Mode '{args.mode}' failed correctness (see {correctness_file}).")
+                print("Fix correctness before benchmarking.")
+                sys.exit(1)
+
     # --- Build forward function ---
     if args.mode == "baseline":
         def forward_fn(uih, cand):

@@ -109,7 +109,7 @@ batches during benchmarking.
 
 ### `iterations.jsonl` (append-only)
 ```json
-{"iter": 1, "hypothesis": "...", "mode": "...", "correctness": "PASS", "median_ms": 10.23, "baseline_ms": 12.45, "speedup": "1.22x", "verdict": "KEEP|REVERT", "commit": "<sha>", "root_cause": "...(if reverted)"}
+{"iter": 1, "hypothesis": "...", "mode": "...", "correctness": "PASS", "median_ms": 10.23, "baseline_ms": 12.45, "speedup": "1.22x", "verdict": "KEEP|REVERT", "commit": "<sha>", "root_cause": "...(if reverted)", "kb_recommendation": "...(if sys-kb-advisor was consulted)", "profiled_after": true, "nsys_trace": "model_runner/nsys_traces/<name>.nsys-rep"}
 ```
 
 Read `last_bench.json` and `last_correctness.json` for numbers — do not
@@ -117,18 +117,32 @@ transcribe from terminal output.
 
 ## Failure Gates
 
-### torch.compile graph breaks
-Read the log (`TORCH_LOGS="graph_breaks"`), search KB for the specific
-pattern. After 2 failed attempts on the same graph break, search KB for
-alternative approaches.
+### On ANY failure (correctness, performance regression, capture error)
 
-### CUDA graph capture failure
-Isolate the offending operation. The existing `CUDAGraphDlrmHSTU` in
-`run_model.py` shows the pattern. Search KB troubleshooting docs.
+**BEFORE** reverting or pivoting, spawn the `sys-kb-advisor` subagent:
+
+```
+"My [technique] optimization failed with: [exact error or symptom].
+ The optimization module is model_runner/optimizations/[mode].py.
+ What does the KB suggest?"
+```
+
+Read the advisor's response. Log it in iterations.jsonl (`kb_recommendation`
+field). Only then decide: attempt the KB-suggested fix, or revert.
 
 ### Correctness regression
-If outputs diverge beyond tolerance (atol=1e-3, rtol=1e-3), **revert
+If outputs diverge beyond tolerance (atol=1e-3, rtol=1e-3), consult
+sys-kb-advisor first — if the KB has no applicable fix, **revert
 immediately**. Do not stack optimizations on a broken base.
+
+### torch.compile graph breaks
+Read the log (`TORCH_LOGS="graph_breaks"`). Spawn sys-kb-advisor with the
+graph break details. After 2 failed attempts on the same graph break, pivot
+to a different technique.
+
+### CUDA graph capture failure
+Isolate the offending operation. Spawn sys-kb-advisor with the capture error.
+The existing `CUDAGraphDlrmHSTU` in `run_model.py` shows the pattern.
 
 ## Version Control
 

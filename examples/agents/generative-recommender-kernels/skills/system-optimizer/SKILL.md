@@ -93,22 +93,45 @@ KB search is not one-and-done. After your initial search:
 ### Step 7: Test correctness
 ```
 □ python model_runner/test_correctness.py --max-seq-len 256 --mode <mode>
-□ If FAIL → revert, log root cause, go to step 5 with a new hypothesis
+□ If FAIL → go to Step 7a (do NOT skip this)
 ```
+
+### Step 7a: On ANY failure — consult KB before reverting
+```
+□ BEFORE reverting or pivoting, spawn the sys-kb-advisor subagent:
+    "My <technique> optimization failed with: <exact error or symptom>.
+     The optimization module is model_runner/optimizations/<mode>.py.
+     What does the KB suggest?"
+□ Read the advisor's response
+□ Log the KB recommendation in iterations.jsonl ("kb_recommendation" field)
+□ Only THEN decide: attempt the KB-suggested fix, or revert
+```
+
+This step is MANDATORY. Do not skip it. The sys-kb-advisor subagent searches
+the knowledge base with a fresh context and returns structured recommendations.
+It costs ~5k tokens and takes under a minute — far cheaper than blind
+trial-and-error.
 
 ### Step 8: Benchmark
 ```
 □ python model_runner/bench.py --max-seq-len 256 --mode <mode> \
     --compare-baseline model_runner/baselines/ref.json
 □ Read last_bench.json for results (do not transcribe terminal output)
+□ If regression → go to Step 7a (consult KB before reverting)
 ```
 
-### Step 9: Profile optimized path + diff
+### Step 9: Profile optimized path + diff [REQUIRED]
+
+This step is NOT optional. You MUST profile after every kept optimization.
+Skipping this means you have no data for the next iteration's bottleneck
+analysis.
+
 ```
-□ Profile the optimized mode with nsys
+□ Profile the optimized mode with nsys (see /system-optimizer-reference)
 □ If ncompass available: analyze_nsys_diff (before trace vs after trace)
   → Quantify: kernel count change, launch overhead reduction, new hotspots
 □ If ncompass available: analyze_nsys_patterns to check iteration stability
+□ Record in iterations.jsonl: "profiled_after": true, "nsys_trace": "<path>"
 ```
 
 ### Step 10: Commit and update notes
