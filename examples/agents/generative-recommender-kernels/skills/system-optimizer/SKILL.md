@@ -2,363 +2,155 @@
 name: system-optimizer
 description: >
   Iteratively optimize the DLRM-v3 + HSTU end-to-end inference pipeline for
-  system-level performance. Load when working on model-runner profiling,
-  torch.compile integration, CUDA graph optimization, operator fusion, or
-  launch overhead reduction.
+  system-level performance. Focuses on the optimization loop: profile, analyze,
+  search, implement, test, benchmark, diff, commit.
 ---
 
 # System-Level Optimizer
 
-## Environment Setup
+You are a GPU systems optimization expert. Your goal is to reduce end-to-end
+iteration latency of the DLRM-v3 + HSTU inference pipeline by identifying and
+fixing system-level bottlenecks.
 
-[CRITICAL] Before doing anything else, invoke the `/baseline-setup` skill and
-follow its instructions exactly. This patches the source tree, builds the HSTU
-kernel, and installs compatible Python dependencies. Do NOT skip this step or
-attempt to fix environment issues yourself — the skill has the exact commands.
+## First-Time Setup
+
+If `.agent/notes/state.json` does not exist, invoke `/system-optimizer-setup`
+first. It handles environment setup, baseline capture, codebase analysis, and
+initial profiling. Do not skip this.
+
+If `state.json` exists, this is a resumed session — read it and the tail of
+`iterations.jsonl` to recover state.
+
+## Scope
+
+System-level optimization ONLY: torch.compile, CUDA graphs, operator fusion,
+launch overhead reduction, async CPU-GPU overlap, synchronization elimination.
+Changes only in `model_runner/optimizations/`. See `/system-optimizer-reference`
+for commands, schemas, and constraints.
+
+[CRITICAL] All commands MUST use `--max-seq-len 256`.
+
+[CRITICAL] Output must remain correct. Every optimization must pass
+`test_correctness.py` before benchmarking.
 
 ---
 
-You are a GPU systems optimization expert. Your goal is to reduce end-to-end
-iteration latency of the DLRM-v3 + HSTU inference pipeline by identifying and
-fixing system-level bottlenecks — launch overhead, missing fusion, unnecessary
-synchronization, poor CPU-GPU overlap, etc.
-
-## Target Workload
-
-[CRITICAL] You are optimizing for **short sequence lengths** (`--max-seq-len 256`).
-All benchmarks, correctness tests, and profiling runs MUST use `--max-seq-len 256`.
-
-At short sequence lengths, the HSTU attention kernel no longer dominates wall time.
-Instead, system-level overhead becomes the primary bottleneck: kernel launch
-overhead, CPU-GPU synchronization, operator fragmentation, and poor overlap.
-This is where your optimizations have the most impact.
-
-**Every command** that runs bench.py, test_correctness.py, or profile_nsys.py
-must include `--max-seq-len 256`. For example:
-
-```bash
-python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
-python model_runner/test_correctness.py --max-seq-len 256 --mode <your_mode>
-python model_runner/bench.py --max-seq-len 256 --mode <your_mode> --compare-baseline model_runner/baselines/ref.json
-```
-
-Do NOT run with the default max_seq_len (16384). At 16K, attention dominates at
-~75% of GPU time and there is almost no system-level overhead to optimize.
-
-[CRITICAL] The output must remain correct. Every optimization must pass
-`test_correctness.py` before benchmarking.
-
-[CRITICAL] If you have access to **ncompass MCP** (trace analysis) and
-**knowledge_bank MCP** (curated docs on torch.compile, CUDA graphs, Triton,
-etc.), use them extensively — they are there to augment your reasoning.
-
-[CRITICAL] Do NOT hard-code optimization strategies from prior knowledge.
-Profile first, identify the bottleneck, then implement. If the knowledge_bank
-MCP is available, search it for techniques that address the observed bottleneck.
-Let the data guide you.
-
-## Preflight
-
-Before doing anything else, check which MCPs are configured. **Call each tool
-directly** — do NOT use ToolSearch to discover tools (MCP tools are lazy-loaded
-and may not appear in ToolSearch results).
-
-1. **ncompass**: call `mcp__ncompass__check_auth` (no arguments).
-   - Returns a result → ncompass is available.
-   - Tool doesn't exist error → no ncompass, proceed without it.
-2. **knowledge_bank**: call `mcp__knowledge_bank__search_kb` with query `"cuda graphs"`.
-   - Returns results → KB is available.
-   - Tool doesn't exist error → no KB, proceed without it.
-   - Tool exists but returns zero results or errors → **abort the run**.
-
-Record which MCPs are available. This determines your workflow:
-- **Both available**: full loop (profile → analyze via ncompass → search KB → implement)
-- **ncompass only**: profile → analyze via ncompass → implement (no KB search)
-- **KB only**: profile manually (read nsys output) → search KB → implement
-- **Neither**: profile manually → implement using your own reasoning
-
-## What this task is NOT
-
-[CRITICAL] Read this carefully:
-
-- You are **NOT** writing CUDA kernels. Do not write `.cu`, `.h`, or Triton kernel code.
-- You are **NOT** modifying the HSTU attention implementation. The custom kernel is
-  pre-built and loaded via `--kernel triton`. It is not your concern.
-- You are **NOT** replacing existing kernels with hand-written alternatives.
-
-Your job is **system-level optimization**: torch.compile, CUDA graphs, operator fusion,
-launch overhead reduction, async CPU-GPU overlap, synchronization elimination. These are
-Python-level changes in `model_runner/optimizations/`.
-
-If you find yourself writing GPU kernel code, you have misunderstood the task. Stop and
-re-read this section.
-
-## Session ID
-
-Obtain a session ID at the start. If a `.session_id` file exists (created by
-the `setup-agent-run` script), read it. Otherwise, generate one:
-
-```bash
-if [ -f .session_id ]; then
-    SESSION_ID=$(cat .session_id)
-else
-    SESSION_ID=$(openssl rand -hex 4)
-    echo "$SESSION_ID" > .session_id
-fi
-echo "Session ID: $SESSION_ID"
-```
-
-Create a branch for this session:
-```bash
-git checkout -b system-opt/$SESSION_ID
-```
-
-## Environment Overview
-
-The model runner infrastructure runs the full DLRM-v3 + HSTU inference pipeline
-on a single GPU. A baseline forward pass exists alongside manual CUDA graph
-capture. Your job is to add system-level optimizations on top.
-
-### Directory Layout
-
-```
-model_runner/
-    run_model.py              # Baseline model — DO NOT MODIFY
-    profile_nsys.py           # Nsys wrapper — DO NOT MODIFY
-    bench.py                  # Latency benchmark — DO NOT MODIFY
-    test_correctness.py       # Correctness test — DO NOT MODIFY
-    optimizations/            # YOUR editable directory
-        __init__.py           # Mode discovery (DO NOT MODIFY)
-        <your_mode>.py        # You create these
-    baselines/                # Saved benchmark results (JSON)
-    nsys_traces/              # Nsys trace outputs
-```
-
-### What you edit
-
-Only files inside `model_runner/optimizations/`. Each optimization is a Python
-module that exposes:
-
-```python
-def apply(model, batch, hstu_config, **kwargs) -> callable:
-    """Return a callable(uih_features, candidates_features) -> model_output."""
-```
-
-The callable must return the same output format as the baseline model:
-`(user_emb, item_emb, hidden, mt_target_preds)`.
-
-**Important:** The `batch` argument is for setup only (e.g. CUDA graph capture,
-warmup). The returned callable will be invoked with **different** batches during
-benchmarking — different tensor objects with different data contents, though the
-same batch size. Do not assume the callable will see the same inputs it was
-set up with.
-
-### What you do NOT edit
-
-- `run_model.py` — baseline model infrastructure
-- `bench.py` — benchmark harness
-- `test_correctness.py` — correctness harness
-- `profile_nsys.py` — nsys wrapper
-- `optimizations/__init__.py` — mode discovery
-
-## Running Commands
-
-### Save baseline
-
-```bash
-python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
-```
-
-### Correctness test
-
-```bash
-python model_runner/test_correctness.py --max-seq-len 256 --mode <your_mode>
-python model_runner/test_correctness.py --max-seq-len 256 --all
-```
-
-### Benchmark
-
-```bash
-python model_runner/bench.py --max-seq-len 256 --mode <your_mode>
-python model_runner/bench.py --max-seq-len 256 --mode <your_mode> --compare-baseline model_runner/baselines/ref.json
-```
-
-### Profile with nsys
-
-```bash
-nsys profile \
-  --capture-range=cudaProfilerApi \
-  --capture-range-end=stop \
-  --cuda-memory-usage=true \
-  --cuda-graph-trace=node \
-  -tcuda,nvtx \
-  -o model_runner/nsys_traces/<name> \
-  --force-overwrite=true \
-  python -u model_runner/bench.py --max-seq-len 256 --mode <your_mode> --profile --bench-iters 3
-```
-
-For baseline profiling, use `--mode baseline`.
-
-## Note-Taking
-
-You maintain a `.agent/notes/` directory to track your optimization history.
-This is critical for long-running sessions and for briefing subagents. This
-directory lives alongside `.agent/agent.log` and is automatically created by
-the setup script.
-
-### File layout
-
-```
-.agent/notes/
-  state.json              # Current session state (you write/update this)
-  iterations.jsonl        # Append-only log of every optimization attempt
-  hypotheses.md           # Your ranked queue of what to try next
-  bottleneck.md           # Latest profiling analysis summary
-  methodology.md          # Benchmark methodology decisions
-  last_bench.json         # Auto-written by bench.py (do not edit)
-  last_correctness.json   # Auto-written by test_correctness.py (do not edit)
-```
-
-`last_bench.json` and `last_correctness.json` are auto-written by the
-benchmark and correctness scripts. You do not need to transcribe results
-manually — read these files instead.
-
-### Session startup (before step 0)
-
-```
-If .agent/notes/state.json exists → resumed session:
-  - Read state.json for current metrics and iteration count
-  - Read tail of iterations.jsonl for recent history
-  - Read hypotheses.md for what to try next
-  - Verify current state matches recorded metrics (run a quick benchmark)
-
-If .agent/notes/state.json does not exist → fresh session:
-  - Create .agent/notes/ directory if missing
-  - Save baseline benchmark: python model_runner/bench.py --max-seq-len 256 --save-baseline model_runner/baselines/ref.json
-  - Write state.json with baseline metrics, iteration 0
-  - Write methodology.md with benchmark methodology decisions
-    (warmup iters, bench iters, distribution flags, tolerance thresholds)
-  - Write hypotheses.md with initial ideas (informed by first profile)
-```
-
-### `state.json` schema
-
-```json
-{
-  "session_id": "<from .session_id>",
-  "iteration": 0,
-  "baseline_median_ms": 12.450,
-  "best_median_ms": 12.450,
-  "best_mode": "baseline",
-  "best_commit": "<sha>",
-  "current_bottleneck": "<free text — updated after each profile>",
-  "mcps_available": [],
-  "working_optimizations": []
-}
-```
-
-### After each iteration (step 10.5)
-
-After committing, update notes:
-
-1. **Append** one JSON line to `iterations.jsonl`:
-   ```json
-   {"iter": 1, "hypothesis": "...", "mode": "...", "correctness": "PASS", "median_ms": 10.23, "baseline_ms": 12.45, "speedup": "1.22x", "verdict": "KEEP|REVERT", "commit": "<sha>", "root_cause": "...(if reverted)"}
-   ```
-   Read `last_bench.json` and `last_correctness.json` for the numbers — do not
-   transcribe from terminal output.
-
-2. **Update** `state.json` with new iteration count and best metrics.
-
-3. **Rewrite** `hypotheses.md` — remove what was tried, add new ideas discovered
-   during this iteration.
-
-4. **Overwrite** `bottleneck.md` if profiling was done this iteration.
-
-5. `git add .agent/notes/` — include in the commit.
-
-### Subagent briefing
-
-When spawning any subagent, include in its prompt:
-- The full contents of `.agent/notes/state.json`
-- The last 5 lines of `.agent/notes/iterations.jsonl`
-- If the subagent does profiling work: contents of `.agent/notes/bottleneck.md`
-- The instruction: "Before attempting any optimization, read
-  `.agent/notes/iterations.jsonl` to check if it has already been tried."
-
-### Before attempting an optimization
-
-Grep `iterations.jsonl` for keywords related to your hypothesis. If a similar
-approach was tried and reverted, read the `root_cause` field before proceeding.
-
 ## Optimization Loop
 
+Each iteration follows this checklist. Every box must be checked.
+
+### Step 1: Profile
 ```
--1. Read .agent/notes/ — recover session state (see Note-Taking above)
- 0. Preflight — check which MCPs are available (see above)
- 1. Profile with nsys (baseline first, then optimized)
- 2. Analyze trace via ncompass MCP
-    → Identify: launch overhead %, sync overhead %, idle gaps, kernel count, iteration structure
- 3. Search knowledge_bank MCP for techniques addressing the observed bottleneck. Search repeatedly as you'll get different results each time.
- 4. Formulate ONE hypothesis
- 5. Implement ONE optimization in model_runner/optimizations/
- 6. Run correctness test
- 7. Run benchmark (compare against baseline)
- 8. Profile the optimized path with nsys
- 9. Diff traces via ncompass MCP (analyze_nsys_diff: before vs after)
-    → Quantify: kernel count change, launch overhead reduction, latency change
-10. Git commit with results
-10.5. Update .notes/ (see Note-Taking above)
-11. Check stop conditions (see below) → if triggered, go to Wrap-Up
-12. Otherwise → go to step 2 with the new trace
+□ Profile current best mode with nsys (see /system-optimizer-reference)
 ```
 
-### Stop Conditions
+### Step 2: Analyze trace
+```
+□ If ncompass available: analyze_nsys_sqlite (kernel count, top kernels,
+  launch overhead, sync points)
+□ Identify the dominant bottleneck for THIS iteration
+□ Update .agent/notes/bottleneck.md
+```
 
-After each iteration, check whether any of these conditions are met.
-If so, **stop the optimization loop** and proceed to Wrap-Up.
+### Step 3: Consult knowledge base
+```
+□ Search KB for techniques addressing the specific bottleneck identified
+  in step 2 (use search_kb_deep for technique research, not search_kb)
+□ Read the top 2-3 results in full via read_kb_file
+□ If results reference code, use list_kb_adjacent to explore related files
+□ If initial results are too generic, refine your query with specific
+  details from the bottleneck analysis (module names, kernel types, error
+  messages)
+```
 
-1. **Diminishing returns** — The last 5 consecutive iterations each produced
-   <2% improvement over the previous best. This means cumulative gain across
-   all 3 was negligible. The optimization space is exhausted.
+KB search is not one-and-done. After your initial search:
+- If results are too generic, refine your query with more problem specific details
+- If a result snippet looks relevant, use read_kb_file to get the full
+  content and list_kb_adjacent to explore related files
+- Search at least twice per iteration: once for the bottleneck class, once
+  for the specific technique you plan to implement
 
-2. **Time limit** — 2 hours have elapsed since the session started (check
-   against the timestamp in `state.json` or `.session_id` creation time).
-   Finish the current iteration, then stop.
+### Step 4: Consult codebase analysis
+```
+□ Re-read .agent/notes/codebase_analysis.md
+□ Check if the bottleneck maps to a specific finding from the analysis
+  (e.g., a dtype conversion, an unused code path, a compile-friendly module)
+□ Check iterations.jsonl for similar approaches already tried
+```
 
-3. **Regression streak** — 5 consecutive iterations were reverted (verdict
-   = REVERT) with no successful optimization in between. The agent is stuck
-   and further attempts are unlikely to succeed without a fundamentally
-   different approach.
+### Step 5: Formulate hypothesis
+```
+□ Write ONE hypothesis informed by profiling + KB + codebase analysis
+□ Update .agent/notes/hypotheses.md
+```
 
-4. **Correctness wall** — 5 consecutive correctness failures on different
-   optimization approaches. Stop and report rather than continuing to
-   generate broken code.
+### Step 6: Implement
+```
+□ Implement ONE optimization in model_runner/optimizations/<mode>.py
+□ One hypothesis, one bounded code change
+```
 
-### Wrap-Up
+### Step 7: Test correctness
+```
+□ python model_runner/test_correctness.py --max-seq-len 256 --mode <mode>
+□ If FAIL → revert, log root cause, go to step 5 with a new hypothesis
+```
+
+### Step 8: Benchmark
+```
+□ python model_runner/bench.py --max-seq-len 256 --mode <mode> \
+    --compare-baseline model_runner/baselines/ref.json
+□ Read last_bench.json for results (do not transcribe terminal output)
+```
+
+### Step 9: Profile optimized path + diff
+```
+□ Profile the optimized mode with nsys
+□ If ncompass available: analyze_nsys_diff (before trace vs after trace)
+  → Quantify: kernel count change, launch overhead reduction, new hotspots
+□ If ncompass available: analyze_nsys_patterns to check iteration stability
+```
+
+### Step 10: Commit and update notes
+```
+□ git add model_runner/optimizations/ .agent/notes/
+□ git commit with correctness/benchmark results in message
+□ Append to iterations.jsonl (read last_bench.json + last_correctness.json)
+□ Update state.json (iteration count, best metrics)
+□ Rewrite hypotheses.md (remove tried, add new ideas from this iteration)
+□ Overwrite bottleneck.md if profiling was done
+```
+
+### Step 11: Check stop conditions
+```
+□ Diminishing returns: last 3 iterations each <2% improvement
+□ Time limit: 2 hours elapsed
+□ Regression streak: 3 consecutive reverts with no success between
+□ Correctness wall: 5 consecutive correctness failures
+□ If any triggered → go to Wrap-Up
+□ Otherwise → go to Step 1
+```
+
+---
+
+## Wrap-Up
 
 When any stop condition triggers:
 
-1. Ensure the **best-performing mode** is the current state of
-   `model_runner/optimizations/`. If you reverted the last iteration,
-   confirm the best mode's file is still present and passes correctness.
-
-2. Run a final benchmark of the best mode:
+1. Ensure the best-performing mode is current state
+2. Run a final benchmark with 30 iterations:
    ```bash
-   python model_runner/bench.py --max-seq-len 256 --mode <best_mode> --compare-baseline model_runner/baselines/ref.json --bench-iters 30
+   python model_runner/bench.py --max-seq-len 256 --mode <best_mode> \
+     --compare-baseline model_runner/baselines/ref.json --bench-iters 30
    ```
-
-3. Write `.agent/notes/summary.md` with:
+3. Write `.agent/notes/summary.md`:
    ```markdown
    # Session Summary
-
    **Session ID:** <id>
-   **Stop reason:** <which condition triggered>
+   **Stop reason:** <which condition>
    **Total iterations:** <N>
-   **Duration:** <minutes>
 
    ## Results
-
    | Metric | Value |
    |--------|-------|
    | Baseline median | X.XX ms |
@@ -367,91 +159,17 @@ When any stop condition triggers:
    | Speedup | X.XXx |
 
    ## Optimizations kept
-   - <mode>: <description> (X.XXx speedup)
+   - <mode>: <description> (X.XXx)
 
    ## Optimizations reverted
    - <mode>: <description> — <root_cause>
 
    ## Remaining hypotheses
-   - <ideas not yet tried, from hypotheses.md>
+   - <from hypotheses.md>
    ```
-
-4. Update `state.json` with `"status": "complete"` and the stop reason.
-
-5. Git commit all notes:
+4. Update `state.json` with `"status": "complete"` and stop reason
+5. Final commit:
    ```bash
    git add .agent/notes/ model_runner/optimizations/
    git commit -m "Session complete: <best_speedup>x speedup (<stop_reason>)"
    ```
-
-### Loop Discipline
-
-Each iteration is:
-1. One hypothesis
-2. One bounded code change
-3. One correctness run
-4. One benchmark run
-5. One profile + analysis, or an explicit reason profiling is not needed yet
-6. One git commit
-7. One notes update
-
-No stacking multiple untested optimizations. No intuition-driven edits without
-profiling evidence.
-
-## MCP Tools
-
-| MCP | When to use |
-|---|---|
-| **ncompass** `check_auth` | Preflight |
-| **ncompass** `analyze_nsys_sqlite` | Raw kernel timing, launch overhead, sync analysis |
-| **ncompass** `analyze_nsys_perfetto` | Timeline view, GPU/CPU overlap, concurrency |
-| **ncompass** `analyze_nsys_patterns` | Iteration structure, timing variability |
-| **ncompass** `analyze_nsys_diff` | Before/after trace comparison |
-| **ncompass** `consult` | Ambiguous or multi-domain questions |
-| **knowledge_bank** `search_kb` | Find techniques for a specific bottleneck class |
-
-Use the specialist ncompass tools when the task clearly maps to one domain.
-Use `consult` only for ambiguous or cross-domain questions.
-
-## Failure Gates
-
-### torch.compile graph breaks
-If dynamo reports graph breaks, read the log (`TORCH_LOGS="graph_breaks"`),
-search the knowledge_bank MCP for the specific pattern, and apply a targeted
-fix. After 2 failed attempts on the same graph break, search KB for alternative
-approaches.
-
-### CUDA graph capture failure
-If capture fails, isolate the offending operation. The existing
-`CUDAGraphDlrmHSTU` in `run_model.py` shows the pattern (precomputing `.item()`
-results). Search KB troubleshooting docs before attempting fixes.
-
-### Correctness regression
-If outputs diverge beyond tolerance (atol=1e-3, rtol=1e-3), **revert
-immediately**. Do not stack optimizations on a broken base. Diagnose first.
-
-## Version Control
-
-Track every optimization as a separate commit.
-
-```bash
-git add model_runner/optimizations/
-git commit -m "description of the change
-
-Correctness: PASS/FAIL
-Median latency: X.XXX ms (baseline: Y.YYY ms, speedup: Z.ZZx)
-"
-```
-
-Include test results in the commit message body.
-
-## Key Constraints
-
-- Always run `test_correctness.py` after edits before benchmarking
-- Always profile before making performance-driven edits
-- Use `knowledge_bank` `search_kb` to find optimization techniques — do not rely
-  solely on prior knowledge
-- Do not modify files outside `model_runner/optimizations/`
-- The custom HSTU kernel is always loaded (`--kernel triton`). System-level
-  optimizations are layered around it, not replacing it
-- Single-GPU only (multi-GPU is out of scope)
