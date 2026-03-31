@@ -17,6 +17,8 @@ from pathlib import Path
 
 import torch
 
+from gpu_lock import gpu_lock
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "generative-recommenders"))
 
 from run_model import (
@@ -116,78 +118,81 @@ def main():
 
     batch = generate_batch(hstu_config, args.batch_size, device)
 
-    # --- Baseline ---
-    print("Running baseline forward...")
-    with torch.no_grad():
-        baseline_out = model(batch.uih_features_kjt, batch.candidates_features_kjt)
-    torch.cuda.synchronize()
+    # --- GPU-exclusive section (lock prevents contention from parallel agents) ---
+    mode_label = "--all" if args.all else f"--mode {args.mode}"
+    with gpu_lock(f"test_correctness.py {mode_label}"):
+        # --- Baseline ---
+        print("Running baseline forward...")
+        with torch.no_grad():
+            baseline_out = model(batch.uih_features_kjt, batch.candidates_features_kjt)
+        torch.cuda.synchronize()
 
-    # Generate a SECOND batch with different random data. Optimized modes are
-    # tested on this fresh batch so that input-caching tricks (data_ptr
-    # memoization, Python `is` checks, etc.) cannot game the test by returning
-    # stale results from the first batch.
-    print("Generating fresh test batch for optimized modes...")
-    test_batch = generate_batch(hstu_config, args.batch_size, device)
+        # Generate a SECOND batch with different random data. Optimized modes are
+        # tested on this fresh batch so that input-caching tricks (data_ptr
+        # memoization, Python `is` checks, etc.) cannot game the test by returning
+        # stale results from the first batch.
+        print("Generating fresh test batch for optimized modes...")
+        test_batch = generate_batch(hstu_config, args.batch_size, device)
 
-    print("Computing baseline on test batch...")
-    with torch.no_grad():
-        baseline_out_test = model(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
-    torch.cuda.synchronize()
+        print("Computing baseline on test batch...")
+        with torch.no_grad():
+            baseline_out_test = model(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
+        torch.cuda.synchronize()
 
-    # --- Test modes ---
-    modes = discover_modes() if args.all else [args.mode]
-    if not modes:
-        print("No optimization modes found in optimizations/")
-        sys.exit(1)
+        # --- Test modes ---
+        modes = discover_modes() if args.all else [args.mode]
+        if not modes:
+            print("No optimization modes found in optimizations/")
+            sys.exit(1)
 
-    all_passed = True
-    notes_records: list[dict] = []
+        all_passed = True
+        notes_records: list[dict] = []
 
-    for mode_name in modes:
-        print(f"\nTesting mode: {mode_name}")
-        try:
-            apply_fn = load_mode(mode_name)
-        except (ImportError, AttributeError) as e:
-            print(f"  SKIP — failed to load: {e}")
-            all_passed = False
-            continue
+        for mode_name in modes:
+            print(f"\nTesting mode: {mode_name}")
+            try:
+                apply_fn = load_mode(mode_name)
+            except (ImportError, AttributeError) as e:
+                print(f"  SKIP — failed to load: {e}")
+                all_passed = False
+                continue
 
-        # apply() receives the original batch for warmup/capture setup.
-        try:
-            forward_fn = apply_fn(model, batch, hstu_config)
-        except Exception as e:
-            print(f"  FAIL — apply() raised: {e}")
-            all_passed = False
-            continue
+            # apply() receives the original batch for warmup/capture setup.
+            try:
+                forward_fn = apply_fn(model, batch, hstu_config)
+            except Exception as e:
+                print(f"  FAIL — apply() raised: {e}")
+                all_passed = False
+                continue
 
-        # Call with the FRESH test batch — different object, different data_ptr,
-        # different tensor contents. Any mode that ignores its arguments or
-        # returns cached results from the setup batch will fail here.
-        try:
-            with torch.no_grad():
-                opt_out = forward_fn(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
-            torch.cuda.synchronize()
-        except Exception as e:
-            print(f"  FAIL — forward raised: {e}")
-            all_passed = False
-            continue
+            # Call with the FRESH test batch — different object, different data_ptr,
+            # different tensor contents. Any mode that ignores its arguments or
+            # returns cached results from the setup batch will fail here.
+            try:
+                with torch.no_grad():
+                    opt_out = forward_fn(test_batch.uih_features_kjt, test_batch.candidates_features_kjt)
+                torch.cuda.synchronize()
+            except Exception as e:
+                print(f"  FAIL — forward raised: {e}")
+                all_passed = False
+                continue
 
-        results = _compare_outputs(baseline_out_test, opt_out, atol=1e-3, rtol=1e-3)
-        mode_passed = all(r["pass"] for r in results)
-        if not mode_passed:
-            all_passed = False
+            results = _compare_outputs(baseline_out_test, opt_out, atol=1e-3, rtol=1e-3)
+            mode_passed = all(r["pass"] for r in results)
+            if not mode_passed:
+                all_passed = False
 
-        for r in results:
-            status = "PASS" if r["pass"] else "FAIL"
-            note = f" ({r['note']})" if r.get("note") else ""
-            print(f"  {r['name']:20s} {status}  max_diff={r['max_diff']:.6f}{note}")
+            for r in results:
+                status = "PASS" if r["pass"] else "FAIL"
+                note = f" ({r['note']})" if r.get("note") else ""
+                print(f"  {r['name']:20s} {status}  max_diff={r['max_diff']:.6f}{note}")
 
-        print(f"  {'PASSED' if mode_passed else 'FAILED'}")
-        notes_records.append({
-            "mode": mode_name,
-            "overall": "PASS" if mode_passed else "FAIL",
-            "results": [{k: v for k, v in r.items() if k != "note" or v} for r in results],
-        })
+            print(f"  {'PASSED' if mode_passed else 'FAILED'}")
+            notes_records.append({
+                "mode": mode_name,
+                "overall": "PASS" if mode_passed else "FAIL",
+                "results": [{k: v for k, v in r.items() if k != "note" or v} for r in results],
+            })
 
     # --- Auto-capture to .agent/notes/ ---
     notes_dir = Path(args.notes_dir) if args.notes_dir else Path(".agent/notes")

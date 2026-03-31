@@ -1,0 +1,48 @@
+#!/bin/bash
+# gpu-lock: Run a command while holding the exclusive GPU lock.
+#
+# Usage: gpu-lock <command> [args...]
+# Example: gpu-lock nsys profile -o trace python bench.py --mode baseline
+#
+# Uses flock(1) on the shared lock file. If the lock directory doesn't
+# exist, runs the command directly (graceful degradation for non-Docker).
+
+set -eo pipefail
+
+LOCK_PATH="${GPU_LOCK_PATH:-/gpu_locks/gpu0.lock}"
+LOCK_DIR="$(dirname "$LOCK_PATH")"
+TIMEOUT="${GPU_LOCK_TIMEOUT:-600}"
+
+if [ $# -eq 0 ]; then
+    echo "Usage: gpu-lock <command> [args...]" >&2
+    exit 1
+fi
+
+# Graceful degradation: if lock dir doesn't exist, just exec the command.
+if [ ! -d "$LOCK_DIR" ]; then
+    exec "$@"
+fi
+
+CONTAINER="${HOSTNAME:-unknown}"
+echo "[gpu-lock] Waiting for GPU lock (container=${CONTAINER:0:12}, cmd=$1)..."
+
+# Use flock(1) with timeout. fd 9 is an arbitrary unused fd.
+exec 9>"$LOCK_PATH"
+if ! flock --timeout "$TIMEOUT" 9; then
+    echo "[gpu-lock] TIMEOUT after ${TIMEOUT}s waiting for GPU lock." >&2
+    exit 124
+fi
+
+echo "[gpu-lock] Acquired GPU lock for: $*"
+echo "holder=${CONTAINER:0:12} cmd=$* since=$(date +%s)" >&9
+
+# Tell child Python processes the lock is already held (prevents deadlock
+# when gpu-lock wraps a command that internally calls gpu_lock.py).
+export GPU_LOCK_HELD=1
+
+# Execute the command. When it exits, fd 9 closes and the lock is released.
+"$@"
+EXIT_CODE=$?
+
+echo "[gpu-lock] Released GPU lock (exit code: $EXIT_CODE)"
+exit $EXIT_CODE

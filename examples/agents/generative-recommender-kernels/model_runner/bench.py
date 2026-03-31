@@ -24,6 +24,8 @@ from pathlib import Path
 
 import torch
 
+from gpu_lock import gpu_lock
+
 # Allow imports from the GR working directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "generative-recommenders"))
 
@@ -165,21 +167,23 @@ def main():
         apply_fn = load_mode(args.mode)
         forward_fn = apply_fn(model, setup_batch, hstu_config)
 
-    # --- Warmup (uses setup batch — warms up compiled code / graph) ---
-    print(f"Warmup ({args.warmup_iters} iters)...")
-    _run_iters(forward_fn,
-               [(setup_batch.uih_features_kjt, setup_batch.candidates_features_kjt)],
-               args.warmup_iters)
+    # --- GPU-exclusive section (lock prevents contention from parallel agents) ---
+    with gpu_lock(f"bench.py --mode {args.mode}"):
+        # --- Warmup (uses setup batch — warms up compiled code / graph) ---
+        print(f"Warmup ({args.warmup_iters} iters)...")
+        _run_iters(forward_fn,
+                   [(setup_batch.uih_features_kjt, setup_batch.candidates_features_kjt)],
+                   args.warmup_iters)
 
-    # --- Benchmark (cycles through distinct batches) ---
-    if args.profile:
-        torch.cuda.cudart().cudaProfilerStart()
+        # --- Benchmark (cycles through distinct batches) ---
+        if args.profile:
+            torch.cuda.cudart().cudaProfilerStart()
 
-    print(f"Benchmarking ({args.bench_iters} iters, {n_bench_batches} batches)...")
-    latencies = _run_iters(forward_fn, bench_batches, args.bench_iters)
+        print(f"Benchmarking ({args.bench_iters} iters, {n_bench_batches} batches)...")
+        latencies = _run_iters(forward_fn, bench_batches, args.bench_iters)
 
-    if args.profile:
-        torch.cuda.cudart().cudaProfilerStop()
+        if args.profile:
+            torch.cuda.cudart().cudaProfilerStop()
 
     stats = _stats(latencies)
     stats["mode"] = args.mode

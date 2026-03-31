@@ -41,7 +41,7 @@ python model_runner/bench.py --max-seq-len 256 --mode <your_mode> \
 
 ### Profile with nsys
 ```bash
-nsys profile \
+gpu-lock nsys profile \
   --capture-range=cudaProfilerApi \
   --capture-range-end=stop \
   --cuda-memory-usage=true \
@@ -52,6 +52,18 @@ nsys profile \
   python -u model_runner/bench.py --max-seq-len 256 --mode <your_mode> \
     --profile --bench-iters 3
 ```
+
+### GPU lock (automatic)
+`bench.py` and `test_correctness.py` automatically acquire an exclusive GPU lock
+before running GPU-intensive work. No action needed for those commands.
+
+For `nsys profile` or `ncu` commands invoked directly, prefix with `gpu-lock`:
+```bash
+gpu-lock nsys profile ...
+gpu-lock ncu ...
+```
+This prevents other agents from running GPU work simultaneously, which would
+corrupt measurements. If no lock directory is present, the wrapper is a no-op.
 
 ## MCP Tools
 
