@@ -166,7 +166,10 @@ git commit -m "Session setup: baseline + codebase analysis"
 across context compactions — creating them here ensures the first iteration's
 checklist survives even if the skill text scrolls out of context later.
 
-Create all 12 tasks via TaskCreate, then wire dependencies via TaskUpdate.
+[CRITICAL] Use the `TaskCreate` tool (NOT `TodoWrite`). `TodoWrite` does not
+support dependencies and does not persist across context compactions. Call the
+`TaskCreate` tool once per task, then call `TaskUpdate` with `addBlockedBy`
+to wire dependencies.
 
 **Tasks to create:**
 

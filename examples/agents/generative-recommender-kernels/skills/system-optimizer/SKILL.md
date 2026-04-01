@@ -43,9 +43,15 @@ they are your durable checklist. Mark each in_progress when you start it,
 completed when done. Do NOT start a blocked task until its dependencies are
 complete.
 
+[CRITICAL] Use the `TaskCreate` tool (NOT `TodoWrite`). `TodoWrite` does not
+support dependencies and does not persist across context compactions.
+After creating tasks, use `TaskUpdate` with `addBlockedBy` to wire
+dependencies. Use `TaskList` to check status.
+
 ### Create tasks for iteration N
 
-[CRITICAL] Create all 12 tasks via TaskCreate, then wire dependencies via TaskUpdate.
+Call the `TaskCreate` tool 12 times (once per task below), then call
+`TaskUpdate` to set `addBlockedBy` on each dependent task.
 Replace N with the actual iteration number.
 
 | # | Subject | Description |
