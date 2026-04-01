@@ -64,8 +64,8 @@ separates effective optimization from trial-and-error.
 
 Read these files in order:
 
-1. `model_runner/run_model.py` — baseline forward pass, existing
-   infrastructure (`CUDAGraphDlrmHSTU`, `CUDAGraphRunner`, etc.)
+1. `model_runner/run_model.py` — baseline forward pass, model setup,
+   batch generation, warmup and profiling utilities
 2. The model's `forward()`, `main_forward()`, `_user_forward()`,
    `_item_forward()` methods (in `generative-recommenders/`)
 3. The HSTU transducer forward path
@@ -78,8 +78,8 @@ Write `.agent/notes/codebase_analysis.md` documenting:
 ```markdown
 # Codebase Analysis
 
-## Existing optimization infrastructure
-- What utilities already exist in run_model.py (graph runners, wrappers)?
+## Model architecture
+- How does the forward pass decompose (preprocess → main_forward → postprocess)?
 - How does the optimization mode system work?
 
 ## Synchronization points

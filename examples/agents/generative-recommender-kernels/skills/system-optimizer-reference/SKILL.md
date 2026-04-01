@@ -166,7 +166,6 @@ to a different technique.
 
 ### CUDA graph capture failure
 Isolate the offending operation. Spawn sys-kb-advisor with the capture error.
-The existing `CUDAGraphDlrmHSTU` in `run_model.py` shows the pattern.
 
 ## Version Control
 
