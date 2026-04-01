@@ -139,33 +139,53 @@ batches during benchmarking.
 Read `last_bench.json` and `last_correctness.json` for numbers — do not
 transcribe from terminal output.
 
-## Failure Gates
+## Failure Protocol
 
-### On ANY failure (correctness, performance regression, capture error)
+### Step 1: Isolate the exact failure
 
-**BEFORE** reverting or pivoting, spawn the `sys-kb-advisor` subagent:
+Do NOT describe failures vaguely. Fill in this template:
 
+```markdown
+**Error**: <exact error message or symptom>
+**Location**: <file:line, function name>
+**Tensor/operation**: <specific tensor name, expected vs actual shape>
+**Root cause**: <why this specific thing failed — trace it back>
 ```
-"My [technique] optimization failed with: [exact error or symptom].
- The optimization module is model_runner/optimizations/[mode].py.
+
+"The preprocessor has complex size interactions" is NOT acceptable.
+"payload_features['viewer_id'] has shape [16] but _pad_tensor tried to
+pad it to [4096] because it wasn't excluded from UIH padding" IS acceptable.
+
+### Step 2: Consult KB before reverting
+
+Spawn sys-kb-advisor with the exact failure + root cause:
+```
+"My [technique] optimization failed with: [exact error].
+ Root cause: [from step 1].
+ Module: model_runner/optimizations/[mode].py.
  What does the KB suggest?"
 ```
 
-Read the advisor's response. Log it in iterations.jsonl (`kb_recommendation`
-field). Only then decide: attempt the KB-suggested fix, or revert.
+### Step 3: Decide
 
-### Correctness regression
-If outputs diverge beyond tolerance (atol=1e-3, rtol=1e-3), consult
-sys-kb-advisor first — if the KB has no applicable fix, **revert
-immediately**. Do not stack optimizations on a broken base.
+- KB has applicable fix → attempt it
+- You have a targeted fix for the root cause → attempt it
+- Only revert if targeted fix fails AND root cause is architectural
 
-### torch.compile graph breaks
-Read the log (`TORCH_LOGS="graph_breaks"`). Spawn sys-kb-advisor with the
-graph break details. After 2 failed attempts on the same graph break, pivot
-to a different technique.
+Log in iterations.jsonl: `"kb_recommendation"`, `"root_cause"`, `"decision"`.
 
-### CUDA graph capture failure
-Isolate the offending operation. Spawn sys-kb-advisor with the capture error.
+### Specific failure types
+
+**Correctness regression** (atol=1e-3, rtol=1e-3): Follow steps 1-3 above.
+If KB has no fix AND root cause is architectural → revert. Do not stack
+optimizations on a broken base.
+
+**torch.compile graph breaks**: Read log (`TORCH_LOGS="graph_breaks"`).
+Include graph break details in sys-kb-advisor prompt. After 2 failed attempts
+on the same graph break, pivot.
+
+**CUDA graph capture failure**: Isolate the offending operation (which
+function call, which tensor). Include in sys-kb-advisor prompt.
 
 ## Version Control
 
@@ -175,6 +195,34 @@ git commit -m "description
 
 Correctness: PASS/FAIL
 Median latency: X.XXX ms (baseline: Y.YYY ms, speedup: Z.ZZx)"
+```
+
+## Summary Schema
+
+When wrapping up a session, write `.agent/notes/summary.md`:
+
+```markdown
+# Session Summary
+**Session ID:** <id>
+**Stop reason:** <which condition triggered>
+**Total iterations:** <N>
+
+## Results
+| Metric | Value |
+|--------|-------|
+| Baseline median | X.XX ms |
+| Best median | X.XX ms |
+| Best mode | <name> |
+| Speedup | X.XXx |
+
+## Optimizations kept
+- <mode>: <description> (X.XXx)
+
+## Optimizations reverted
+- <mode>: <description> — <root_cause>
+
+## Remaining hypotheses
+- <from hypotheses.md>
 ```
 
 ## Constraints

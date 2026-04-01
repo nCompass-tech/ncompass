@@ -160,5 +160,47 @@ git add .agent/notes/ model_runner/baselines/
 git commit -m "Session setup: baseline + codebase analysis"
 ```
 
+## Step 11: Create Iteration 1 Tasks
+
+[CRITICAL] Do this NOW, before invoking `/system-optimizer`. Tasks persist
+across context compactions — creating them here ensures the first iteration's
+checklist survives even if the skill text scrolls out of context later.
+
+Create all 12 tasks via TaskCreate, then wire dependencies via TaskUpdate.
+
+**Tasks to create:**
+
+1. `Iter 1: Profile` — Profile current best mode with nsys
+2. `Iter 1: Analyze + approach` — Analyze trace, identify bottleneck, select approach class
+3. `Iter 1: KB search` — 2+ search_kb_deep queries, read top results IN FULL
+4. `Iter 1: Prior work check` — Re-read codebase_analysis.md, check iterations.jsonl
+5. `Iter 1: Hypothesis` — ONE hypothesis from profiling + KB + codebase analysis
+6. `Iter 1: Implement` — ONE optimization in model_runner/optimizations/\<mode\>.py
+7. `Iter 1: Correctness` — test_correctness.py (if FAIL: follow Failure Protocol, do NOT mark complete)
+8. `Iter 1: Benchmark` — bench.py --compare-baseline (if regression: follow Failure Protocol)
+9. `Iter 1: Judge` — Spawn sys-optimization-judge
+10. `Iter 1: Profile optimized` — MANDATORY nsys profile + diff
+11. `Iter 1: Commit + notes` — git commit, update state.json/iterations.jsonl/hypotheses.md
+12. `Iter 1: Stop check` — Mechanical check of stop conditions
+
+**After creating all 12, set dependencies via TaskUpdate addBlockedBy:**
+```
+Task 2  blockedBy: [Task 1]
+Task 3  blockedBy: [Task 2]
+Task 4  blockedBy: [Task 2]
+Task 5  blockedBy: [Task 3, Task 4]
+Task 6  blockedBy: [Task 5]
+Task 7  blockedBy: [Task 6]
+Task 8  blockedBy: [Task 7]
+Task 9  blockedBy: [Task 8]
+Task 10 blockedBy: [Task 8]
+Task 11 blockedBy: [Task 9, Task 10]
+Task 12 blockedBy: [Task 11]
+```
+
+Since you already profiled the baseline in Step 7, you can mark
+`Iter 1: Profile` as completed immediately — the baseline trace is your
+starting point.
+
 Setup is complete. Proceed to the `/system-optimizer` skill for the
 optimization loop.
