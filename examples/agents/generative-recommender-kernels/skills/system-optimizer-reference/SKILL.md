@@ -23,8 +23,20 @@ you're optimizing.
 - You are **NOT** writing CUDA kernels (.cu, .h, Triton kernel code)
 - You are **NOT** modifying the HSTU attention implementation
 - You are **NOT** replacing existing kernels with hand-written alternatives
-- You **ARE** writing Python-level system optimizations in
-  `model_runner/optimizations/`
+
+## What You CAN Edit
+
+You may edit any file under `model_runner/`, including `run_model.py`.
+
+Each optimization must still have an entry point module in
+`model_runner/optimizations/<mode>.py` with the standard `apply()` signature
+— this is how `bench.py` and `test_correctness.py` discover and invoke your
+optimization.
+
+**Do NOT modify:**
+- `bench.py` — benchmark harness
+- `test_correctness.py` — correctness harness
+- `optimizations/__init__.py` — mode discovery
 
 ## Running Commands
 
@@ -159,7 +171,7 @@ The existing `CUDAGraphDlrmHSTU` in `run_model.py` shows the pattern.
 ## Version Control
 
 ```bash
-git add model_runner/optimizations/ .agent/notes/
+git add model_runner/ .agent/notes/
 git commit -m "description
 
 Correctness: PASS/FAIL
@@ -170,6 +182,7 @@ Median latency: X.XXX ms (baseline: Y.YYY ms, speedup: Z.ZZx)"
 
 - Always run `test_correctness.py` before benchmarking
 - Always profile before making performance-driven edits
-- Do not modify files outside `model_runner/optimizations/`
+- Do not modify `bench.py`, `test_correctness.py`, or `optimizations/__init__.py`
+- Do not modify files outside `model_runner/`
 - Single-GPU only
 - The custom HSTU kernel is pre-built (`--kernel triton`)

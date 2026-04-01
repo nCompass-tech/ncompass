@@ -25,8 +25,8 @@ If `state.json` exists, this is a resumed session — read it and the tail of
 
 System-level optimization ONLY: torch.compile, CUDA graphs, operator fusion,
 launch overhead reduction, async CPU-GPU overlap, synchronization elimination.
-Changes only in `model_runner/optimizations/`. See `/system-optimizer-reference`
-for commands, schemas, and constraints.
+Changes in `model_runner/` (including `run_model.py`). See
+`/system-optimizer-reference` for commands, schemas, and constraints.
 
 [CRITICAL] All commands MUST use `--max-seq-len 256`.
 
@@ -153,7 +153,7 @@ analysis.
 
 ### Step 10: Commit and update notes
 ```
-□ git add model_runner/optimizations/ .agent/notes/
+□ git add model_runner/ .agent/notes/
 □ git commit with correctness/benchmark results in message
 □ Append to iterations.jsonl (read last_bench.json + last_correctness.json)
 □ Update state.json (iteration count, best metrics)
