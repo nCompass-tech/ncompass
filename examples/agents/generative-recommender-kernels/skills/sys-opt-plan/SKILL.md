@@ -17,7 +17,7 @@ only after the developer has weighed in.
 
 - `/sys-opt-recon` has completed
 - `.agent/notes/recon/` contains: `entry_point.md`, `call_graph.md`,
-  `trace_analysis.md`, `barriers.md`, `metadata.json`
+  `trace_analysis.md`, `barriers.md`, `override_points.md`, `metadata.json`
 
 Read all recon files before proceeding.
 
@@ -52,20 +52,29 @@ Unattributed time is a finding, not an error.
 ## Phase 2: Technique Feasibility Assessment
 
 For each major optimization technique, assess feasibility against the
-barriers found in recon. The standard techniques to evaluate:
+barriers AND override points found in recon. Read `override_points.md` —
+it identifies the minimum intervention needed per technique.
+
+The key question is not "is the technique compatible with the full codebase"
+but "can the barriers be removed with minimal, targeted overrides."
 
 ### CUDA Graphs
 - **Requirement**: Static shapes, no CPU-GPU sync, no host-side allocation
   during capture
 - **Check against barriers**: Which barriers block full-graph capture?
   Which phases could be captured if isolated?
+- **Check override points**: Can each barrier be eliminated by overriding
+  a single method? If so, the technique is feasible even if the codebase
+  looks hostile at first glance.
 - **Piecewise possibility**: Can the forward pass be split into
-  capturable and non-capturable segments?
+  capturable and non-capturable segments at a natural boundary?
 
 ### torch.compile
 - **Requirement**: Traceable operations, no graph breaks in critical path
 - **Check against barriers**: Which barriers cause graph breaks? Which
   modules are compile-friendly if isolated?
+- **Check override points**: Can graph-breaking ops be isolated to a
+  small wrapper that runs eagerly while the rest compiles?
 - **Mode assessment**: Would `default`, `reduce-overhead`, or
   `max-autotune` be most appropriate given the bottleneck profile?
 
@@ -178,7 +187,10 @@ plan to `.agent/notes/plan.md`:
 ### Iteration 1: [name]
 - **Goal**: [specific, measurable]
 - **Approach**: [technique + barrier resolution if needed]
-- **Implementation sketch**: [key code changes, not full implementation]
+- **Override point**: [from recon — which class/method to subclass/override]
+- **Implementation sketch**: [specific: subclass X, override Y to do Z.
+  Prefer minimal override over reimplementation — unchanged code paths
+  preserve numerical equivalence with baseline.]
 - **Expected impact**: ~X.Xx
 - **Risk**: [what could fail, and what to do if it does]
 - **Success criteria**: correctness passes, speedup >= X.Xx

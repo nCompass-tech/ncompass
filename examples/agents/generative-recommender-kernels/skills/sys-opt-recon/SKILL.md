@@ -170,13 +170,15 @@ and a structured summary:
 - [cudaDeviceSynchronize, cudaStreamSynchronize, etc.]
 ```
 
-## Step 6: Identify Optimization Barriers (Trace-Driven)
+## Step 6: Identify Optimization Barriers and Override Points (Trace-Driven)
 
 This step is driven by the trace findings, not by a hardcoded checklist.
 
 For each dominant cost center identified in Step 5:
 1. Map it back to source code using the call graph from Step 2
 2. In that source code, identify what constrains optimization
+3. Identify the **minimum intervention point** — the smallest code surface
+   that, if changed, would unblock the optimization technique
 
 Common barrier categories (use as a reference, not a checklist):
 - **CPU-GPU synchronization**: Host readbacks, data-dependent control flow
@@ -191,19 +193,47 @@ For each barrier found, record:
 - **What**: the specific operation
 - **Why it matters**: which optimization technique(s) it blocks
 - **Severity**: is it on the critical path? How much time does it account for?
+- **Contained in**: which method/class owns this barrier
+- **Override point**: the smallest method that, if overridden or wrapped,
+  eliminates the barrier without touching surrounding code
 
 Write `.agent/notes/recon/barriers.md`:
 ```markdown
 # Optimization Barriers
 
 ## Barrier 1: [descriptive name]
-- **Location**: file.py:123, function_name()
+- **Location**: file.py:123, ClassName.method_name()
 - **Operation**: [what it does]
 - **Blocks**: [CUDA graphs | torch.compile | operator fusion | ...]
 - **Severity**: [critical path, ~X.X ms | minor, <0.1 ms]
 - **Context**: [why this operation exists, what it computes]
+- **Override point**: [ClassName.method_name() — subclass and override
+  this single method to eliminate the barrier. The rest of the call
+  chain above and below this method is unaffected.]
 
 ## Barrier 2: ...
+```
+
+Then write `.agent/notes/recon/override_points.md`:
+```markdown
+# Override Points
+
+Summary of the minimum code changes needed to unblock each optimization
+technique. Prefer subclass + override over reimplementation — changing
+one method preserves numerical equivalence with the baseline for all
+unchanged code paths.
+
+## For [technique, e.g. CUDA graph capture]:
+- **Barrier(s)**: [which barriers block this technique]
+- **Override**: Subclass `ClassName`, override `method_name()` to
+  [eliminate the barrier — e.g. use precomputed value instead of .item()]
+- **Scope**: Only `method_name()` changes. All other methods
+  (`other_method_a`, `other_method_b`, etc.) run unchanged.
+- **Boundary**: [where the eager/captured split should be — e.g.
+  "preprocess() runs eagerly, main_forward() is captured"]
+
+## For [technique]:
+- ...
 ```
 
 ## Step 7: Record Metadata
