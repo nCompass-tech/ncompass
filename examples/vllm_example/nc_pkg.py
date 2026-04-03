@@ -48,6 +48,19 @@ def parse_wheel_version(wheel_filename: str) -> str:
     return f"v{version}"
 
 
+def parse_nightly_commit(wheel_filename: str) -> str | None:
+    """Extract git commit hash from nightly wheel filename, or None if release.
+
+    Nightly filenames embed the commit as +g<hash>, e.g.:
+      vllm-0.19.1rc1.dev110+gb55d830ec.cu130-cp38-abi3-manylinux_2_35_x86_64.whl
+
+    Returns:
+        Abbreviated commit hash (e.g. 'b55d830ec') or None if not a nightly.
+    """
+    match = re.search(r'\+g([0-9a-f]+)\.', wheel_filename)
+    return match.group(1) if match else None
+
+
 def get_current_vllm_version(vllm_src_path: Path) -> str | None:
     """Get the version of currently cloned vLLM source.
 
@@ -193,31 +206,40 @@ def prepare_vllm_source(wheel_file: Path) -> None:
 
     This function should be called on the HOST before container operations.
     It clones or updates the vLLM source to match the wheel version.
+    Handles both release wheels (clone at tag) and nightly wheels (clone at commit).
 
     Args:
         wheel_file: Path to the wheel file being used
     """
-    # Determine the target directory (same directory as wheel_file's parent's parent)
     example_dir = wheel_file.parent.parent  # wheels/ -> vllm_example/
     vllm_src_path = example_dir / VLLM_SRC_DIR
 
-    # Parse required version from wheel filename
-    required_tag = parse_wheel_version(wheel_file.name)
+    # Determine target version marker — works for both release and nightly
+    nightly_commit = parse_nightly_commit(wheel_file.name)
+    if nightly_commit:
+        required_marker = f"nightly:{nightly_commit}"
+    else:
+        required_marker = parse_wheel_version(wheel_file.name)  # e.g. "v0.19.0"
 
     if vllm_src_path.exists():
-        # Check if existing source matches required version
         current_version = get_current_vllm_version(vllm_src_path)
-
-        if current_version == required_tag:
-            print(f"vLLM source already at correct version ({required_tag}), skipping clone.")
+        if current_version == required_marker:
+            print(f"vLLM source already at {required_marker}, skipping clone.")
             return
-        else:
-            print(f"vLLM source version mismatch: have {current_version}, need {required_tag}")
-            print("Removing existing vllm_src directory...")
-            shutil.rmtree(vllm_src_path)
+        print(f"vLLM source version mismatch: have {current_version}, need {required_marker}")
+        print("Removing existing vllm_src directory...")
+        shutil.rmtree(vllm_src_path)
 
-    # Clone fresh with correct tag
-    clone_vllm_source(vllm_src_path, required_tag)
+    # Clone — tag for release, commit hash for nightly
+    if nightly_commit:
+        full_hash = subprocess.run(
+            ["gh", "api", f"repos/vllm-project/vllm/commits/{nightly_commit}",
+             "--jq", ".sha"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        clone_vllm_at_commit(vllm_src_path, full_hash)
+    else:
+        clone_vllm_source(vllm_src_path, required_marker)
 
 
 def find_wheel_from_vllm_src(vllm_src_path: Path, wheels_dir: Path) -> Path:
@@ -240,13 +262,21 @@ def find_wheel_from_vllm_src(vllm_src_path: Path, wheels_dir: Path) -> Path:
             f"Run: python nc_pkg.py --setup --docker-dir ../docker --wheel <wheel_file>"
         )
 
-    # Read version (e.g., "v0.10.2")
+    # Read version marker (e.g. "v0.19.0" or "nightly:b55d830ec...")
     version_tag = version_file.read_text().strip()
-    # Convert to wheel version pattern (e.g., "0.10.2")
-    wheel_version = version_tag.lstrip('v')
 
-    # Find matching wheel
-    wheel_files = list(wheels_dir.glob(f"vllm-{wheel_version}+*.whl"))
+    if version_tag.startswith("nightly:"):
+        # Nightly: match by commit hash embedded in filename (+g<hash>.)
+        commit_prefix = version_tag.split(":", 1)[1][:9]
+        wheel_files = [
+            f for f in wheels_dir.glob("vllm-*.whl")
+            if f"+g{commit_prefix}" in f.name
+        ]
+    else:
+        # Release: match by version string
+        wheel_version = version_tag.lstrip('v')
+        wheel_files = list(wheels_dir.glob(f"vllm-{wheel_version}+*.whl"))
+
     if not wheel_files:
         raise FileNotFoundError(
             f"No wheel found matching vllm_src version {version_tag}.\n"
@@ -287,10 +317,16 @@ def install_vllm(
     compose_files: list[str], env: dict[str, str], service_name: str,
     *, cfg: VllmConfig,
 ) -> None:
-    """Install vllm using the precompiled wheel (release or nightly)."""
+    """Install vllm using the precompiled wheel (release or nightly).
+
+    When a local wheel is provided (cfg.wheel_name), always uses the release
+    install path regardless of whether the wheel is nightly — the local wheel +
+    editable source install is identical for both. The web-download nightly path
+    is only used when no local wheel is specified.
+    """
     _, _, _, execute_in_container = _setup_docker_imports()
 
-    if cfg.nightly:
+    if cfg.nightly and not cfg.wheel_name:
         _install_vllm_nightly(compose_files, env, service_name, execute_in_container)
     else:
         _install_vllm_release(compose_files, env, service_name, execute_in_container, cfg=cfg)
@@ -481,7 +517,11 @@ def main():
 
     cfg = VllmConfig(wheel_name=pre_args.wheel, nightly=pre_args.nightly)
 
-    # Set build-arg env vars for docker compose when --nightly is used
+    # Auto-detect nightly from wheel filename so users don't need --nightly
+    if not cfg.nightly and cfg.wheel_name and parse_nightly_commit(cfg.wheel_name):
+        cfg = VllmConfig(wheel_name=cfg.wheel_name, nightly=True)
+
+    # Set build-arg env vars for docker compose when nightly is active
     if cfg.nightly:
         os.environ['VLLM_NIGHTLY'] = '1'
         os.environ['PYTHON_VERSION'] = '3.12'

@@ -32,15 +32,28 @@ wheel used in setup.
 
 ### Nightly builds
 
-To build and run with the latest vLLM nightly, use `--nightly` (no `--wheel` needed):
+Nightly wheels are auto-detected from the filename (pattern `+g<commit_hash>.`).
+When a nightly wheel is in `wheels/`, `nc_pkg.py` automatically applies nightly
+Docker build settings (Python 3.12, cu130 PyTorch index, system cuBLAS `LD_PRELOAD`).
+
 ```
+# With a local nightly wheel (auto-detected):
+python3 nc_pkg.py --setup --wheel wheels/vllm-0.19.1rc1.dev110+gb55d830ec.cu130-...whl
+python3 nc_pkg.py --build --run --ncompass-dir ../../../ncompass
+
+# Or fetch the latest nightly from the web (no local wheel needed):
 python3 nc_pkg.py --build --nightly --run --ncompass-dir ../../../ncompass
 ```
-This automatically:
-1. Builds the Docker image with Python 3.12, cu130 PyTorch index, and system cuBLAS `LD_PRELOAD`
-2. Fetches the latest nightly wheel index from `wheels.vllm.ai/nightly/cu130`
-3. Clones vLLM source at the matching git commit into `vllm_src/`
-4. Downloads the nightly wheel inside the container and installs vLLM editably with precompiled binaries
+
+### Example scenarios
+
+| Scenario | Wheel | Investigation goal |
+|----------|-------|--------------------|
+| `qwen-attn-backend-bug` | v0.19.0 (release) | Identify incorrect attention backend selection |
+| `qwen-threshold-detection` | nightly `b55d830ec` | Identify DeepGemm/Triton MoE dispatch threshold change |
+
+These scenarios are pre-configured in `setup_run.py` and can be launched with
+`--scenario <name>` from the ncprof root.
 
 ### Running commands in the container
 
@@ -51,6 +64,9 @@ container using the `docker exec ...` command. The directory structure inside th
 docker container mirrors that outside.
 
 If not, start it first and then run commands inside it.
+
+Before running any profiling or running an engine, run a search in the `knowledge_bank` if
+available to see if there are specific instructions on how to run this model.
 
 ---
 
@@ -129,7 +145,7 @@ The tradeoff is that each invocation reloads the model, so sweeping multiple con
 | `--output-len N` | 128 | Output tokens per prompt |
 | `--num-iters N` | 30 | Profiled iterations |
 | `--num-iters-warmup N` | 10 | Warmup iterations (not profiled) |
-| `--profile` | False | Enable cudaProfilerStart/Stop for nsys/ncu capture |
+| `--profiler-config.profiler cuda` | None | Enable cudaProfilerStart/Stop for nsys/ncu capture. **Required** for profiling. (Nightly vLLM replaced the old `--profile` flag with this.) |
 
 All model/engine flags work too (`--attention-backend`, `--moe-backend`, etc.).
 
@@ -140,7 +156,7 @@ All model/engine flags work too (`--attention-backend`, `--moe-backend`, etc.).
 ncompass profile --nsys -o traces/bs32_decode -- \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --batch-size 32 --input-len 50 --output-len 256 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 ```
 
 **Batch of 256, prefill-heavy:**
@@ -148,7 +164,7 @@ ncompass profile --nsys -o traces/bs32_decode -- \
 ncompass profile --nsys -o traces/bs256_prefill -- \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --batch-size 256 --input-len 4096 --output-len 2 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 ```
 
 **Compare attention backends (batch 32):**
@@ -156,13 +172,13 @@ ncompass profile --nsys -o traces/bs256_prefill -- \
 ncompass profile --nsys -o traces/bs32_flash_attn -- \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --batch-size 32 --input-len 4096 --output-len 256 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 
 ncompass profile --nsys -o traces/bs32_flashinfer -- \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --attention-backend FLASHINFER \
         --batch-size 32 --input-len 4096 --output-len 256 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 ```
 
 ### NCU examples
@@ -175,7 +191,7 @@ ncu --profile-from-start off --target-processes all \
     -o traces/attn_roofline -f \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --batch-size 1 --input-len 2048 --output-len 1 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 ```
 
 **Full metrics for a GEMM kernel:**
@@ -186,7 +202,7 @@ ncu --profile-from-start off --target-processes all \
     -o traces/gemm_full -f \
     vllm bench latency --model Qwen/Qwen3.5-35B-A3B-FP8 \
         --batch-size 32 --input-len 1024 --output-len 128 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 3 --profiler-config.profiler cuda
 ```
 
 ---

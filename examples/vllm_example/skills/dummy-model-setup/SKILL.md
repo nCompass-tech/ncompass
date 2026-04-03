@@ -90,7 +90,7 @@ vllm serve ./dummy_models/qwen3.5_small --load-format dummy
 ncompass profile --nsys -o traces/dummy_deepseek -- \
     vllm bench latency --model ./dummy_models/deepseek_v3_small \
         --load-format dummy --batch-size 1 --input-len 2048 --output-len 256 \
-        --num-iters 1 --num-iters-warmup 3 --profile
+        --num-iters 1 --num-iters-warmup 1 --profile --profiler-config.profiler cuda
 ```
 
 ## Correctness checking across changes
